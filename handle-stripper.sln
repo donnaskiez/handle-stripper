@@ -1,0 +1,35 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.33502.453
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "handle-stripper", "handle-stripper\handle-stripper.vcxproj", "{8F5571E5-0D04-4BB8-9711-0E96467F8CED}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|ARM64 = Debug|ARM64
+		Debug|x64 = Debug|x64
+		Release|ARM64 = Release|ARM64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Debug|ARM64.Build.0 = Debug|ARM64
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Debug|ARM64.Deploy.0 = Debug|ARM64
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Debug|x64.ActiveCfg = Debug|x64
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Debug|x64.Build.0 = Debug|x64
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Debug|x64.Deploy.0 = Debug|x64
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Release|ARM64.ActiveCfg = Release|ARM64
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Release|ARM64.Build.0 = Release|ARM64
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Release|ARM64.Deploy.0 = Release|ARM64
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Release|x64.ActiveCfg = Release|x64
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Release|x64.Build.0 = Release|x64
+		{8F5571E5-0D04-4BB8-9711-0E96467F8CED}.Release|x64.Deploy.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {9AFD98D9-7A5C-4E03-8EB1-4232B20A25F7}
+	EndGlobalSection
+EndGlobal
