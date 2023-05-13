@@ -45,16 +45,49 @@ OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
 	_In_ POB_PRE_OPERATION_INFORMATION OperationInformation
 )
 {
+	ACCESS_MASK downgraded_access = 0;
+
+	//This callback routine is executed in the context of the thread that 
+	//is requesting to open said handle
+
 	PEPROCESS process = PsGetCurrentProcess();
-	CHAR image_name[15];
+	CHAR process_name[15];
 
 	RtlCopyMemory(
-		&image_name, 
-		(PVOID)((uintptr_t)process + EPROCESS_IMAGE_FILE_NAME_OFFSET), 
-		sizeof(image_name)
+		&process_name,
+		(PVOID)((uintptr_t)process + EPROCESS_IMAGE_FILE_NAME_OFFSET),
+		sizeof(process_name)
 	);
 
-	DEBUG_LOG("Process name: %s", image_name);
+	//This gives us the target process for the handle
+
+	PEPROCESS target_process = (PEPROCESS)OperationInformation->Object;
+	CHAR target_name[15];
+
+	RtlCopyMemory(
+		&target_name,
+		(PVOID)((uintptr_t)target_process + EPROCESS_IMAGE_FILE_NAME_OFFSET),
+		sizeof(target_name)
+	);
+
+	if (!strcmp(protected_process_name, target_name))
+	{
+		if (!strcmp(process_name, blacklisted_process_name))
+		{
+			//deny access to notepad from processhacker
+
+			if (OperationInformation->Operation == OB_OPERATION_HANDLE_CREATE)
+			{
+				OperationInformation->Parameters->CreateHandleInformation.DesiredAccess &= downgraded_access;
+			}
+			else
+			{
+				OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess &= downgraded_access;
+			}
+
+			DEBUG_LOG("Handles to notepad stripped from ProcessHacker");
+		}
+	}
 
 	return OB_PREOP_SUCCESS;
 }
@@ -64,7 +97,7 @@ VOID ObPostOpCallbackRoutine(
 	_In_ POB_POST_OPERATION_INFORMATION OperationInformation
 )
 {
-	
+
 }
 
 NTSTATUS DriverEntry(

@@ -13,17 +13,12 @@
 UNICODE_STRING DEVICE_NAME = RTL_CONSTANT_STRING(L"\\Device\\hmmmmsss");
 UNICODE_STRING DEVICE_SYMBOLIC_LINK = RTL_CONSTANT_STRING(L"\\??\\hmmmmsss");
 
-typedef struct _CALLBACK_CONTEXT
-{
-	PKPROCESS process;
-
-} CALLBACK_CONTEXT, *PCALLBACK_CONTEXT;
-
-CALLBACK_CONTEXT callback_context = { 0 };
-
 static const uintptr_t EPROCESS_PLIST_ENTRY_OFFSET = 0x448;
 static const uintptr_t EPROCESS_IMAGE_FILE_NAME_OFFSET = 0x5a8;
 static const uintptr_t LDR_DATA_TABLE_IN_MEMORY_LINKS_OFFSET = 0x010;
 static const uintptr_t EPROCESS_PROCESS_ID_OFFSET = 0x440;
+
+CHAR protected_process_name[15] = "notepad.exe";
+CHAR blacklisted_process_name[15] = "ProcessHacker.";
 
 #endif
