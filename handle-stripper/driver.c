@@ -3,6 +3,7 @@
 #include "types.h"
 
 PVOID registration_handle = NULL;
+PVOID protected_process_creator = NULL;
 
 VOID DriverUnload(
 	_In_ PDRIVER_OBJECT DriverObject
@@ -45,7 +46,13 @@ OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
 	_In_ POB_PRE_OPERATION_INFORMATION OperationInformation
 )
 {
-	ACCESS_MASK downgraded_access = 0;
+	UNREFERENCED_PARAMETER(RegistrationContext);
+
+	//Completely strip permissions
+	ACCESS_MASK deny_access = SYNCHRONIZE | PROCESS_TERMINATE;
+	
+	//This mask to be used for lsass/csrss
+	ACCESS_MASK downgrade_access = 0;
 
 	//This callback routine is executed in the context of the thread that 
 	//is requesting to open said handle
@@ -72,20 +79,24 @@ OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
 
 	if (!strcmp(protected_process_name, target_name))
 	{
-		if (!strcmp(process_name, blacklisted_process_name))
+		//todo: downgrade handles from lsass and csrss
+
+		if (!strcmp(process_name, "lsass.exe") || !strcmp(process_name, "csrss.exe"))
 		{
-			//deny access to notepad from processhacker
-
-			if (OperationInformation->Operation == OB_OPERATION_HANDLE_CREATE)
+			//downgrade access
+		}
+		else if (!strcmp(process_name, protected_process_name))
+		{
+			DEBUG_LOG("Handle being opened by: %s", process_name);
+		}
+		else
+		{
+			if (strcmp(process_name, "explorer.exe"))
 			{
-				OperationInformation->Parameters->CreateHandleInformation.DesiredAccess &= downgraded_access;
+				OperationInformation->Parameters->CreateHandleInformation.DesiredAccess = deny_access;
+				OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess = deny_access;
+				DEBUG_LOG("handle stripped from: %s", process_name);
 			}
-			else
-			{
-				OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess &= downgraded_access;
-			}
-
-			DEBUG_LOG("Handles to notepad stripped from ProcessHacker");
 		}
 	}
 
@@ -97,6 +108,17 @@ VOID ObPostOpCallbackRoutine(
 	_In_ POB_POST_OPERATION_INFORMATION OperationInformation
 )
 {
+
+}
+
+VOID ImageLoadNotifyRoutine(
+	_In_ PUNICODE_STRING ImageName,
+	_In_ HANDLE Processid,
+	_In_ PIMAGE_INFO ImageInfo
+)
+{
+	UNREFERENCED_PARAMETER(ImageInfo);
+
 
 }
 
@@ -155,6 +177,10 @@ NTSTATUS DriverEntry(
 		&callback_registration,
 		&registration_handle
 	);
+
+	status = PsSetLoadImageNotifyRoutineEx(
+		
+	)
 
 	if (!NT_SUCCESS(status))
 	{
