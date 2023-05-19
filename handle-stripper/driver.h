@@ -18,5 +18,6 @@ UNICODE_STRING DEVICE_SYMBOLIC_LINK = RTL_CONSTANT_STRING(L"\\??\\hmmmmsss");
 static const uintptr_t EPROCESS_IMAGE_FILE_NAME_OFFSET = 0x5a8;
 
 CHAR protected_process_name[15] = "notepad.exe";
+UNICODE_STRING uprotected_process_name = RTL_CONSTANT_STRING(L"notepad.exe");
 
 #endif

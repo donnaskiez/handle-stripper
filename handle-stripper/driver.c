@@ -3,7 +3,7 @@
 #include "types.h"
 
 PVOID registration_handle = NULL;
-PVOID protected_process_creator = NULL;
+PEPROCESS protected_process_creator = NULL;
 
 VOID DriverUnload(
 	_In_ PDRIVER_OBJECT DriverObject
@@ -57,13 +57,13 @@ OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
 	//This callback routine is executed in the context of the thread that 
 	//is requesting to open said handle
 
-	PEPROCESS process = PsGetCurrentProcess();
-	CHAR process_name[15];
+	PEPROCESS process_creator = PsGetCurrentProcess();
+	CHAR process_creator_name[15];
 
 	RtlCopyMemory(
-		&process_name,
-		(PVOID)((uintptr_t)process + EPROCESS_IMAGE_FILE_NAME_OFFSET),
-		sizeof(process_name)
+		&process_creator_name,
+		(PVOID)((uintptr_t)process_creator + EPROCESS_IMAGE_FILE_NAME_OFFSET),
+		sizeof(process_creator_name)
 	);
 
 	//This gives us the target process for the handle
@@ -77,26 +77,28 @@ OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
 		sizeof(target_name)
 	);
 
+	//Make sure we are only focusing on our protected process
 	if (!strcmp(protected_process_name, target_name))
 	{
 		//todo: downgrade handles from lsass and csrss
 
-		if (!strcmp(process_name, "lsass.exe") || !strcmp(process_name, "csrss.exe"))
+		if (!strcmp(process_creator_name, "lsass.exe") || !strcmp(process_creator_name, "csrss.exe"))
 		{
 			//downgrade access
 		}
-		else if (!strcmp(process_name, protected_process_name))
+		else if (target_process == process_creator)
 		{
-			DEBUG_LOG("Handle being opened by: %s", process_name);
+			DEBUG_LOG("Handles created by the protected process are fine for now: %s", process_creator_name);
+		}
+		else if (process_creator == protected_process_creator)
+		{
+			DEBUG_LOG("Process creator: %s handles are fine for now...", process_creator_name);
 		}
 		else
 		{
-			if (strcmp(process_name, "explorer.exe"))
-			{
-				OperationInformation->Parameters->CreateHandleInformation.DesiredAccess = deny_access;
-				OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess = deny_access;
-				DEBUG_LOG("handle stripped from: %s", process_name);
-			}
+			OperationInformation->Parameters->CreateHandleInformation.DesiredAccess = deny_access;
+			OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess = deny_access;
+			DEBUG_LOG("handle stripped from: %s", process_creator_name);
 		}
 	}
 
@@ -111,15 +113,46 @@ VOID ObPostOpCallbackRoutine(
 
 }
 
-VOID ImageLoadNotifyRoutine(
-	_In_ PUNICODE_STRING ImageName,
-	_In_ HANDLE Processid,
-	_In_ PIMAGE_INFO ImageInfo
+VOID ProcessCreateNotifyRoutine(
+	_In_ HANDLE ParentId,
+	_In_ HANDLE ProcessId,
+	_In_ BOOLEAN Create
 )
 {
-	UNREFERENCED_PARAMETER(ImageInfo);
+	NTSTATUS status;
+	PEPROCESS parent_process;
+	PEPROCESS target_process;
 
+	CHAR parent_process_name[15];
+	CHAR target_process_name[15];
 
+	status = PsLookupProcessByProcessId(ParentId, &parent_process);
+
+	if (!NT_SUCCESS(status))
+		return;
+
+	status = PsLookupProcessByProcessId(ProcessId, &target_process);
+
+	if (!NT_SUCCESS(status))
+		return;
+
+	RtlCopyMemory(
+		&parent_process_name,
+		(PVOID)((uintptr_t)parent_process + EPROCESS_IMAGE_FILE_NAME_OFFSET),
+		sizeof(parent_process_name)
+	);
+
+	RtlCopyMemory(
+		&target_process_name,
+		(PVOID)((uintptr_t)target_process + EPROCESS_IMAGE_FILE_NAME_OFFSET),
+		sizeof(target_process_name)
+	);
+
+	if (!strcmp(target_process_name, protected_process_name))
+	{
+		DEBUG_LOG("parent process for notepad is: %s", parent_process_name);
+		protected_process_creator = parent_process;
+	}
 }
 
 NTSTATUS DriverEntry(
@@ -178,13 +211,23 @@ NTSTATUS DriverEntry(
 		&registration_handle
 	);
 
-	status = PsSetLoadImageNotifyRoutineEx(
-		
-	)
-
 	if (!NT_SUCCESS(status))
 	{
 		DEBUG_ERROR("Failed to register our callback: %lx", status);
+		IoDeleteDevice(&DriverObject->DeviceObject);
+		IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
+		return status;
+	}
+
+	status = PsSetCreateProcessNotifyRoutine(
+		ProcessCreateNotifyRoutine,
+		NULL
+	);
+
+	if (!NT_SUCCESS(status))
+	{
+		DEBUG_LOG("Failed to create image load notify routine");
+		ObUnRegisterCallbacks(registration_handle);
 		IoDeleteDevice(&DriverObject->DeviceObject);
 		IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
 		return status;
