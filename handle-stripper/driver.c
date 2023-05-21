@@ -5,16 +5,6 @@
 PVOID registration_handle = NULL;
 PEPROCESS protected_process_creator = NULL;
 
-VOID DriverUnload(
-	_In_ PDRIVER_OBJECT DriverObject
-)
-{
-	DEBUG_LOG("Unloading driver");
-	ObUnRegisterCallbacks(registration_handle);
-	IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
-	IoDeleteDevice(DriverObject->DeviceObject);
-}
-
 NTSTATUS DriverCreate(
 	_In_ PDEVICE_OBJECT DeviceObject,
 	_In_ PIRP Irp
@@ -88,10 +78,14 @@ OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
 		}
 		else if (target_process == process_creator)
 		{
+			//Allow handles created by the protected process 
+
 			DEBUG_LOG("Handles created by the protected process are fine for now: %s", process_creator_name);
 		}
 		else if (process_creator == protected_process_creator)
 		{
+			//Allow handles created by the protected process' creator i.e explorer, cmd etc.
+
 			DEBUG_LOG("Process creator: %s handles are fine for now...", process_creator_name);
 		}
 		else
@@ -153,6 +147,17 @@ VOID ProcessCreateNotifyRoutine(
 		DEBUG_LOG("parent process for notepad is: %s", parent_process_name);
 		protected_process_creator = parent_process;
 	}
+}
+
+VOID DriverUnload(
+	_In_ PDRIVER_OBJECT DriverObject
+)
+{
+	DEBUG_LOG("Unloading driver");
+	PsSetCreateProcessNotifyRoutine(ProcessCreateNotifyRoutine, TRUE);
+	ObUnRegisterCallbacks(registration_handle);
+	IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
+	IoDeleteDevice(DriverObject->DeviceObject);
 }
 
 NTSTATUS DriverEntry(
@@ -221,7 +226,7 @@ NTSTATUS DriverEntry(
 
 	status = PsSetCreateProcessNotifyRoutine(
 		ProcessCreateNotifyRoutine,
-		NULL
+		FALSE
 	);
 
 	if (!NT_SUCCESS(status))
