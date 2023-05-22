@@ -2,8 +2,18 @@
 
 #include "types.h"
 
+NTKERNELAPI
+BOOLEAN
+ExEnumHandleTable(
+	__in PHANDLE_TABLE HandleTable,
+	__in EX_ENUMERATE_HANDLE_ROUTINE EnumHandleProcedure,
+	__in PVOID EnumParameter,
+	__out_opt PHANDLE Handle
+);
+
 PVOID registration_handle = NULL;
 PEPROCESS protected_process_creator = NULL;
+PEPROCESS protected_process = NULL;
 
 NTSTATUS DriverCreate(
 	_In_ PDEVICE_OBJECT DeviceObject,
@@ -29,6 +39,60 @@ NTSTATUS DriverClose(
 
 	IoCompleteRequest(Irp, IO_NO_INCREMENT);
 	return Irp->IoStatus.Status;
+}
+
+BOOLEAN EnumHandleCallback(
+	_In_ PHANDLE_TABLE HandleTable,
+	_In_ PHANDLE_TABLE_ENTRY Entry,
+	_In_ HANDLE Handle,
+	_In_ PVOID Context
+)
+{
+	//POBJECT_HEADER object_header = *(POBJECT_HEADER*)Entry->ObjectPointerBits;
+	DEBUG_LOG("handel table entry: %llx", (UINT64)Entry);
+	//DEBUG_LOG("Object header address: %llx", (UINT64)object_header);
+
+	return FALSE;
+}
+
+NTSTATUS EnumerateProcessHandles(
+	_In_ PEPROCESS Process
+)
+{
+	if (!Process)
+	{
+		DEBUG_LOG("Process passed in null to enumprochandles");
+		return STATUS_INVALID_PARAMETER_1;
+	}
+
+	DEBUG_LOG("Beginning to enumerate process handles for proc: %llx", (UINT64)Process);
+
+	NTSTATUS status = STATUS_SUCCESS;
+	BOOLEAN result;
+
+	//Make sure we are running at an IRQL low enough that allows paging
+	PAGED_CODE();
+
+	PHANDLE_TABLE handle_table = *(PHANDLE_TABLE*)((uintptr_t)Process + EPROCESS_HANDLE_TABLE_OFFSET);
+
+	DEBUG_LOG("handle table: %llx", (UINT64)handle_table);
+
+	if (!handle_table)
+	{
+		DEBUG_ERROR("Handle table pointer is null");
+		return;
+	}
+
+	result = ExEnumHandleTable(
+		handle_table,
+		EnumHandleCallback,
+		NULL,
+		NULL
+	);
+
+	DEBUG_LOG("Result: %c", result);
+
+	return status;
 }
 
 OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
@@ -146,6 +210,7 @@ VOID ProcessCreateNotifyRoutine(
 	{
 		DEBUG_LOG("parent process for notepad is: %s", parent_process_name);
 		protected_process_creator = parent_process;
+		protected_process = target_process;
 	}
 }
 
@@ -158,6 +223,56 @@ VOID DriverUnload(
 	ObUnRegisterCallbacks(registration_handle);
 	IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
 	IoDeleteDevice(DriverObject->DeviceObject);
+}
+
+NTSTATUS MajorControl(
+	PDRIVER_OBJECT DriverObject,
+	PIRP Irp
+)
+{
+	UNREFERENCED_PARAMETER(DriverObject);
+
+	NTSTATUS status = STATUS_SUCCESS;
+	PIO_STACK_LOCATION stack_location = IoGetCurrentIrpStackLocation(Irp);
+
+	switch (stack_location->Parameters.DeviceIoControl.IoControlCode)
+	{
+	case IOCTL_RUN_HANDLE_STRIPPER:
+		
+		DEBUG_LOG("RunHandleStripper IOCTL Received");
+
+		HANDLE thread_handle;
+
+		status = PsCreateSystemThread(
+			&thread_handle,
+			PROCESS_ALL_ACCESS,
+			NULL,
+			NULL,
+			NULL,
+			EnumerateProcessHandles,
+			protected_process
+		);
+
+		if (!NT_SUCCESS(status))
+		{
+			DEBUG_LOG("Failed to start handle enumeration thread");
+			goto end;
+		}
+
+		break;
+
+	default:
+
+		DEBUG_ERROR("Invalid IOCTL code passed");
+	}
+
+end: 
+
+	Irp->IoStatus.Status = status;
+
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	return status;
 }
 
 NTSTATUS DriverEntry(
@@ -184,6 +299,7 @@ NTSTATUS DriverEntry(
 
 	DriverObject->MajorFunction[IRP_MJ_CREATE] = DriverCreate;
 	DriverObject->MajorFunction[IRP_MJ_CLOSE] = DriverClose;
+	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = MajorControl;
 	DriverObject->DriverUnload = DriverUnload;
 
 	status = IoCreateSymbolicLink(
