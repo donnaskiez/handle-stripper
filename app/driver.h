@@ -13,7 +13,7 @@ BOOL ValidateAccess()
 	BOOL status;
 
 	device = CreateFileW(
-		L"\\\\.\\hmmmmsss",
+		L"\\\\.\\greeeee",
 		GENERIC_WRITE | GENERIC_READ | GENERIC_EXECUTE,
 		0,
 		0,

@@ -13,11 +13,16 @@
 
 #define PROCESS_TERMINATE 0x0001
 
-UNICODE_STRING DEVICE_NAME = RTL_CONSTANT_STRING(L"\\Device\\hmmmmsss");
-UNICODE_STRING DEVICE_SYMBOLIC_LINK = RTL_CONSTANT_STRING(L"\\??\\hmmmmsss");
+//https://www.sysnative.com/forums/threads/object-headers-handles-and-types.34987/
+#define GET_OBJECT_HEADER_FROM_HANDLE(x) ((x << 4) | 0xffff000000000000)
+
+
+UNICODE_STRING DEVICE_NAME = RTL_CONSTANT_STRING(L"\\Device\\greeeee");
+UNICODE_STRING DEVICE_SYMBOLIC_LINK = RTL_CONSTANT_STRING(L"\\??\\greeeee");
 
 static const uintptr_t EPROCESS_IMAGE_FILE_NAME_OFFSET = 0x5a8;
 static const uintptr_t EPROCESS_HANDLE_TABLE_OFFSET = 0x570;
+static const uintptr_t OBJECT_HEADER_SIZE = 0x30;
 
 CHAR protected_process_name[15] = "notepad.exe";
 UNICODE_STRING uprotected_process_name = RTL_CONSTANT_STRING(L"notepad.exe");

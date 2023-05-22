@@ -6,6 +6,36 @@
 
 //stuff dumped from windbg
 
+typedef struct _OBJECT_TYPE
+{
+    LIST_ENTRY TypeList;
+    UNICODE_STRING Name;
+    PVOID DefaultObject;
+    UCHAR Index;
+    ULONG TotalNumberOfObjects;
+    ULONG TotalNumberOfHandles;
+    ULONG HighWaterNumberOfObjects;
+    ULONG HighWaterNumberOfHandles;
+    PVOID TypeInfo; //wrong _OBJECT_TYPE_INITIALIZER
+    EX_PUSH_LOCK TypeLock;
+    ULONG Key;
+    LIST_ENTRY CallbackList;
+
+} OBJECT_TYPE, * POBJECT_TYPE;
+
+typedef struct _EXHANDLE
+{
+    union {
+        PVOID GenericHandleOverlay;
+        ULONGLONG Value;
+        struct {
+            UCHAR TagBits : 2;
+            ULONG Index : 30;
+        };
+    };
+
+} EXHANDLE, * PEXHANDLE;
+
 typedef struct _PEB_LDR_DATA {
     BYTE Reserved1[8];
     PVOID Reserved2[3];
@@ -99,19 +129,6 @@ typedef struct _LDR_DATA_TABLE_ENTRY32 {
     ULONG TimeDateStamp;
 } LDR_DATA_TABLE_ENTRY32, * PLDR_DATA_TABLE_ENTRY32;
 
-typedef struct _EXHANDLE
-{
-    union {
-        PVOID GenericHandleOverlay;
-        ULONGLONG Value;
-        struct {
-            UCHAR TagBits : 2;
-            ULONG Index : 30;
-        };
-    };
-
-} EXHANDLE, * PEXHANDLE;
-
 typedef struct _HANDLE_TABLE_ENTRY_INFO
 {
     ULONG AuditMask;
@@ -120,33 +137,24 @@ typedef struct _HANDLE_TABLE_ENTRY_INFO
 } HANDLE_TABLE_ENTRY_INFO, * PHANDLE_TABLE_ENTRY_INFO;
 
 
-typedef struct _HANDLE_TABLE_ENTRY
+typedef struct _HANDLE_TABLE_ENTRY // Size=16
 {
-    union {
-        LONGLONG VolatileLowValue;
-        LONGLONG LowValue;
-        PHANDLE_TABLE_ENTRY_INFO InfoTable;
-    };
-    union {
-        LONGLONG HighValue;
-        struct _HANDLE_TABLE_ENTRY* NextFreeHandleEntry;
-        EXHANDLE LeafHandleValue;
-    };
-    union {
-        LONGLONG RefCountField;
-        struct {
-            UCHAR Unlocked : 1;
-            USHORT RefCnt : 16;
-            UCHAR Attributes : 3;
-            ULONGLONG ObjectPointerBits : 44;
+    union
+    {
+        ULONG_PTR VolatileLowValue; // Size=8 Offset=0
+        ULONG_PTR LowValue; // Size=8 Offset=0
+        struct _HANDLE_TABLE_ENTRY_INFO* InfoTable; // Size=8 Offset=0
+        struct
+        {
+            ULONG_PTR Unlocked : 1; // Size=8 Offset=0 BitOffset=0 BitCount=1
+            ULONG_PTR RefCnt : 16; // Size=8 Offset=0 BitOffset=1 BitCount=16
+            ULONG_PTR Attributes : 3; // Size=8 Offset=0 BitOffset=17 BitCount=3
+            ULONG_PTR ObjectPointerBits : 44; // Size=8 Offset=0 BitOffset=20 BitCount=44
         };
     };
-    struct {
-        ULONG GrantedAccessBits : 25;
-        UCHAR NoRightsUpgrade : 1;
-        UCHAR Spare1 : 6;
-    };
-    ULONG Spare2;
+
+    PVOID stuff;
+    ULONG TypeInfo; // Size=4 Offset=12
 } HANDLE_TABLE_ENTRY, * PHANDLE_TABLE_ENTRY;
 
 typedef struct _HANDLE_TABLE_FREE_LIST

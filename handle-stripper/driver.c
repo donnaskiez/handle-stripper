@@ -11,6 +11,13 @@ ExEnumHandleTable(
 	__out_opt PHANDLE Handle
 );
 
+NTKERNELAPI
+POBJECT_TYPE
+NTAPI
+ObGetObjectType(
+	_In_ PVOID Object
+);
+
 PVOID registration_handle = NULL;
 PEPROCESS protected_process_creator = NULL;
 PEPROCESS protected_process = NULL;
@@ -48,9 +55,18 @@ BOOLEAN EnumHandleCallback(
 	_In_ PVOID Context
 )
 {
-	//POBJECT_HEADER object_header = *(POBJECT_HEADER*)Entry->ObjectPointerBits;
-	DEBUG_LOG("handel table entry: %llx", (UINT64)Entry);
-	//DEBUG_LOG("Object header address: %llx", (UINT64)object_header);
+	DEBUG_LOG("Handle Table Entry: %llx", (UINT64)Entry);
+
+	DEBUG_LOG("ObjectPointerBits: %llx", Entry->ObjectPointerBits);
+
+	PVOID object_header = GET_OBJECT_HEADER_FROM_HANDLE(Entry->ObjectPointerBits);
+
+	DEBUG_LOG("Object header: %llx", (UINT64)object_header);
+
+	//Object header is the first 30 bytes of the object
+	POBJECT_TYPE object_type = ObGetObjectType((uintptr_t)object_header + OBJECT_HEADER_SIZE);
+
+	DEBUG_LOG("Object type: %wZ", object_type->Name);
 
 	return FALSE;
 }
