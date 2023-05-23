@@ -55,18 +55,22 @@ BOOLEAN EnumHandleCallback(
 	_In_ PVOID Context
 )
 {
-	DEBUG_LOG("Handle Table Entry: %llx", (UINT64)Entry);
-
-	DEBUG_LOG("ObjectPointerBits: %llx", Entry->ObjectPointerBits);
-
 	PVOID object_header = GET_OBJECT_HEADER_FROM_HANDLE(Entry->ObjectPointerBits);
-
-	DEBUG_LOG("Object header: %llx", (UINT64)object_header);
+	PVOID object = (uintptr_t)object_header + OBJECT_HEADER_SIZE;
 
 	//Object header is the first 30 bytes of the object
-	POBJECT_TYPE object_type = ObGetObjectType((uintptr_t)object_header + OBJECT_HEADER_SIZE);
+	POBJECT_TYPE object_type = ObGetObjectType(object);
 
-	DEBUG_LOG("Object type: %wZ", object_type->Name);
+	if (!RtlCompareUnicodeString(&object_type->Name, &OBJECT_TYPE_PROCESS, TRUE))
+	{
+		PEPROCESS process = (PEPROCESS)object;
+		DEBUG_LOG("Handle references process object: %llx", (UINT64)process);
+
+		if (process == protected_process)
+		{
+			DEBUG_LOG("Handle references our protected process");
+		}
+	}
 
 	return FALSE;
 }
@@ -75,6 +79,9 @@ NTSTATUS EnumerateProcessHandles(
 	_In_ PEPROCESS Process
 )
 {
+	//Make sure we are running at an IRQL low enough that allows paging
+	PAGED_CODE();
+
 	if (!Process)
 	{
 		DEBUG_LOG("Process passed in null to enumprochandles");
@@ -86,17 +93,12 @@ NTSTATUS EnumerateProcessHandles(
 	NTSTATUS status = STATUS_SUCCESS;
 	BOOLEAN result;
 
-	//Make sure we are running at an IRQL low enough that allows paging
-	PAGED_CODE();
-
 	PHANDLE_TABLE handle_table = *(PHANDLE_TABLE*)((uintptr_t)Process + EPROCESS_HANDLE_TABLE_OFFSET);
-
-	DEBUG_LOG("handle table: %llx", (UINT64)handle_table);
 
 	if (!handle_table)
 	{
 		DEBUG_ERROR("Handle table pointer is null");
-		return;
+		return STATUS_ABANDONED;
 	}
 
 	result = ExEnumHandleTable(
@@ -106,9 +108,34 @@ NTSTATUS EnumerateProcessHandles(
 		NULL
 	);
 
-	DEBUG_LOG("Result: %c", result);
+	DEBUG_LOG("Result: %lx", result);
 
 	return status;
+}
+
+VOID EnumerateProcessList()
+{
+	//Store the System EPROCESS struct as our base process
+	//The EPROCESS struct is the kernals representation of a process
+	PEPROCESS base_process = PsInitialSystemProcess;
+
+	if (!base_process)
+	{
+		DbgPrint("Failed to get system process struct");
+		return STATUS_NOT_FOUND;
+	}
+
+	PEPROCESS current_process = base_process;
+
+	do {
+
+		EnumerateProcessHandles(current_process);
+
+		PLIST_ENTRY list = (PLIST_ENTRY)((uintptr_t)current_process + EPROCESS_PLIST_ENTRY_OFFSET);
+
+		current_process = (PEPROCESS)((uintptr_t)list->Flink - EPROCESS_PLIST_ENTRY_OFFSET);
+
+	} while (current_process != base_process);
 }
 
 OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
@@ -265,8 +292,8 @@ NTSTATUS MajorControl(
 			NULL,
 			NULL,
 			NULL,
-			EnumerateProcessHandles,
-			protected_process
+			EnumerateProcessList,
+			NULL
 		);
 
 		if (!NT_SUCCESS(status))

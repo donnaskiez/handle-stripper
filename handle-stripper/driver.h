@@ -19,10 +19,12 @@
 
 UNICODE_STRING DEVICE_NAME = RTL_CONSTANT_STRING(L"\\Device\\greeeee");
 UNICODE_STRING DEVICE_SYMBOLIC_LINK = RTL_CONSTANT_STRING(L"\\??\\greeeee");
+UNICODE_STRING OBJECT_TYPE_PROCESS = RTL_CONSTANT_STRING("Process");
 
 static const uintptr_t EPROCESS_IMAGE_FILE_NAME_OFFSET = 0x5a8;
 static const uintptr_t EPROCESS_HANDLE_TABLE_OFFSET = 0x570;
 static const uintptr_t OBJECT_HEADER_SIZE = 0x30;
+static const uintptr_t EPROCESS_PLIST_ENTRY_OFFSET = 0x448;
 
 CHAR protected_process_name[15] = "notepad.exe";
 UNICODE_STRING uprotected_process_name = RTL_CONSTANT_STRING(L"notepad.exe");
