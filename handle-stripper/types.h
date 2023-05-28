@@ -1,10 +1,7 @@
-#ifndef TYPE_H
-#define TYPES_H
+#pragma once
 
 #include <ntifs.h>
 #include <wdftypes.h>
-
-//stuff dumped from windbg
 
 typedef struct _OBJECT_TYPE
 {
@@ -16,25 +13,12 @@ typedef struct _OBJECT_TYPE
     ULONG TotalNumberOfHandles;
     ULONG HighWaterNumberOfObjects;
     ULONG HighWaterNumberOfHandles;
-    PVOID TypeInfo; //wrong _OBJECT_TYPE_INITIALIZER
+    PVOID TypeInfo; //_OBJECT_TYPE_INITIALIZER
     EX_PUSH_LOCK TypeLock;
     ULONG Key;
     LIST_ENTRY CallbackList;
 
 } OBJECT_TYPE, * POBJECT_TYPE;
-
-typedef struct _EXHANDLE
-{
-    union {
-        PVOID GenericHandleOverlay;
-        ULONGLONG Value;
-        struct {
-            UCHAR TagBits : 2;
-            ULONG Index : 30;
-        };
-    };
-
-} EXHANDLE, * PEXHANDLE;
 
 typedef struct _PEB_LDR_DATA {
     BYTE Reserved1[8];
@@ -136,6 +120,45 @@ typedef struct _HANDLE_TABLE_ENTRY_INFO
 
 } HANDLE_TABLE_ENTRY_INFO, * PHANDLE_TABLE_ENTRY_INFO;
 
+typedef union _EXHANDLE
+{
+    struct
+    {
+        int TagBits : 2;
+        int Index : 30;
+    } u;
+    void* GenericHandleOverlay;
+    ULONG_PTR Value;
+} EXHANDLE, * PEXHANDLE;
+
+#pragma warning(disable : 4214 4201)
+
+#pragma pack(push, 1)
+typedef struct _POOL_HEADER // Size=16
+{
+    union
+    {
+        struct
+        {
+            unsigned long PreviousSize : 8; // Size=4 Offset=0 BitOffset=0 BitCount=8
+            unsigned long PoolIndex : 8; // Size=4 Offset=0 BitOffset=8 BitCount=8
+            unsigned long BlockSize : 8; // Size=4 Offset=0 BitOffset=16 BitCount=8
+            unsigned long PoolType : 8; // Size=4 Offset=0 BitOffset=24 BitCount=8
+        };
+        unsigned long Ulong1; // Size=4 Offset=0
+    };
+    unsigned long PoolTag; // Size=4 Offset=4
+    union
+    {
+        struct _EPROCESS* ProcessBilled; // Size=8 Offset=8
+        struct
+        {
+            unsigned short AllocatorBackTraceIndex; // Size=2 Offset=8
+            unsigned short PoolTagHash; // Size=2 Offset=10
+        };
+    };
+} POOL_HEADER, * PPOOL_HEADER;
+#pragma pack(pop)
 
 typedef struct _HANDLE_TABLE_ENTRY // Size=16
 {
@@ -152,8 +175,18 @@ typedef struct _HANDLE_TABLE_ENTRY // Size=16
             ULONG_PTR ObjectPointerBits : 44; // Size=8 Offset=0 BitOffset=20 BitCount=44
         };
     };
-
-    PVOID stuff;
+    union
+    {
+        ULONG_PTR HighValue; // Size=8 Offset=8
+        struct _HANDLE_TABLE_ENTRY* NextFreeHandleEntry; // Size=8 Offset=8
+        union _EXHANDLE LeafHandleValue; // Size=8 Offset=8
+        struct
+        {
+            ULONG GrantedAccessBits : 25; // Size=4 Offset=8 BitOffset=0 BitCount=25
+            ULONG NoRightsUpgrade : 1; // Size=4 Offset=8 BitOffset=25 BitCount=1
+            ULONG Spare : 6; // Size=4 Offset=8 BitOffset=26 BitCount=6
+        };
+    };
     ULONG TypeInfo; // Size=4 Offset=12
 } HANDLE_TABLE_ENTRY, * PHANDLE_TABLE_ENTRY;
 
@@ -276,6 +309,28 @@ typedef struct _OBJECT_HEADER
     QUAD Body;
 } OBJECT_HEADER, * POBJECT_HEADER;
 
+NTKERNELAPI
+BOOLEAN
+ExEnumHandleTable(
+    __in PHANDLE_TABLE HandleTable,
+    __in EX_ENUMERATE_HANDLE_ROUTINE EnumHandleProcedure,
+    __in PVOID EnumParameter,
+    __out_opt PHANDLE Handle
+);
 
+NTKERNELAPI
+POBJECT_TYPE
+NTAPI
+ObGetObjectType(
+    _In_ PVOID Object
+);
 
-#endif // !TYPE_H
+typedef struct _EX_PUSH_LOCK_WAIT_BLOCK* PEX_PUSH_LOCK_WAIT_BLOCK;
+
+NTKERNELAPI
+VOID
+FASTCALL
+ExfUnblockPushLock(
+    _Inout_ PEX_PUSH_LOCK PushLock,
+    _Inout_opt_ PEX_PUSH_LOCK_WAIT_BLOCK WaitBlock
+);

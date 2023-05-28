@@ -2,25 +2,30 @@
 
 #include "types.h"
 
-NTKERNELAPI
-BOOLEAN
-ExEnumHandleTable(
-	__in PHANDLE_TABLE HandleTable,
-	__in EX_ENUMERATE_HANDLE_ROUTINE EnumHandleProcedure,
-	__in PVOID EnumParameter,
-	__out_opt PHANDLE Handle
-);
-
-NTKERNELAPI
-POBJECT_TYPE
-NTAPI
-ObGetObjectType(
-	_In_ PVOID Object
-);
-
 PVOID registration_handle = NULL;
 PEPROCESS protected_process_creator = NULL;
 PEPROCESS protected_process = NULL;
+
+//taken from reactos, required to prevent system hang after 
+//handle table entry has been processed
+VOID NTAPI ExUnlockHandleTableEntry(
+	IN PHANDLE_TABLE HandleTable,
+	IN PHANDLE_TABLE_ENTRY HandleTableEntry
+)
+{
+	LONG_PTR OldValue;
+	PAGED_CODE();
+
+	/* Sanity check */
+	ASSERT((KeGetCurrentThread()->CombinedApcDisable != 0) ||
+		(KeGetCurrentIrql() == APC_LEVEL));
+
+	/* Set the lock bit and make sure it wasn't earlier */
+	OldValue = InterlockedOr((PLONG)&HandleTableEntry->VolatileLowValue, 1);
+
+	/* Unblock any waiters */
+	ExfUnblockPushLock(&HandleTable->HandleContentionEvent, NULL);
+}
 
 NTSTATUS DriverCreate(
 	_In_ PDEVICE_OBJECT DeviceObject,
@@ -64,13 +69,15 @@ BOOLEAN EnumHandleCallback(
 	if (!RtlCompareUnicodeString(&object_type->Name, &OBJECT_TYPE_PROCESS, TRUE))
 	{
 		PEPROCESS process = (PEPROCESS)object;
-		DEBUG_LOG("Handle references process object: %llx", (UINT64)process);
 
 		if (process == protected_process)
 		{
-			DEBUG_LOG("Handle references our protected process");
+			DEBUG_LOG("Handle references our protected process with access mask: %lx", (ACCESS_MASK)Entry->GrantedAccessBits);
+			ACCESS_MASK handle_access_mask = (ACCESS_MASK)Entry->GrantedAccessBits;
 		}
 	}
+
+	ExUnlockHandleTableEntry(HandleTable, Entry);
 
 	return FALSE;
 }
@@ -115,8 +122,6 @@ NTSTATUS EnumerateProcessHandles(
 
 VOID EnumerateProcessList()
 {
-	//Store the System EPROCESS struct as our base process
-	//The EPROCESS struct is the kernals representation of a process
 	PEPROCESS base_process = PsInitialSystemProcess;
 
 	if (!base_process)
@@ -127,15 +132,15 @@ VOID EnumerateProcessList()
 
 	PEPROCESS current_process = base_process;
 
-	do {
-
+	do 
+	{
 		EnumerateProcessHandles(current_process);
 
 		PLIST_ENTRY list = (PLIST_ENTRY)((uintptr_t)current_process + EPROCESS_PLIST_ENTRY_OFFSET);
 
 		current_process = (PEPROCESS)((uintptr_t)list->Flink - EPROCESS_PLIST_ENTRY_OFFSET);
 
-	} while (current_process != base_process);
+	} while (current_process != base_process || !current_process);
 }
 
 OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
@@ -378,7 +383,6 @@ NTSTATUS DriverEntry(
 	if (!NT_SUCCESS(status))
 	{
 		DEBUG_ERROR("Failed to register our callback: %lx", status);
-		IoDeleteDevice(&DriverObject->DeviceObject);
 		IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
 		return status;
 	}
@@ -390,9 +394,8 @@ NTSTATUS DriverEntry(
 
 	if (!NT_SUCCESS(status))
 	{
-		DEBUG_LOG("Failed to create image load notify routine");
+		DEBUG_ERROR("Failed to create image load notify routine");
 		ObUnRegisterCallbacks(registration_handle);
-		IoDeleteDevice(&DriverObject->DeviceObject);
 		IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
 		return status;
 	}
