@@ -61,9 +61,10 @@ BOOLEAN EnumHandleCallback(
 )
 {
 	PVOID object_header = GET_OBJECT_HEADER_FROM_HANDLE(Entry->ObjectPointerBits);
-	PVOID object = (uintptr_t)object_header + OBJECT_HEADER_SIZE;
 
 	//Object header is the first 30 bytes of the object
+	PVOID object = (uintptr_t)object_header + OBJECT_HEADER_SIZE;
+
 	POBJECT_TYPE object_type = ObGetObjectType(object);
 
 	if (!RtlCompareUnicodeString(&object_type->Name, &OBJECT_TYPE_PROCESS, TRUE))
@@ -74,6 +75,67 @@ BOOLEAN EnumHandleCallback(
 		{
 			DEBUG_LOG("Handle references our protected process with access mask: %lx", (ACCESS_MASK)Entry->GrantedAccessBits);
 			ACCESS_MASK handle_access_mask = (ACCESS_MASK)Entry->GrantedAccessBits;
+
+			if (handle_access_mask & PROCESS_CREATE_PROCESS)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_CREATE_PROCESS;
+				DEBUG_LOG("Stripped PROCESS_CREATE_PROCESS");
+			}
+			else if (handle_access_mask & PROCESS_CREATE_THREAD)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_CREATE_THREAD;
+				DEBUG_LOG("Stripped PROCESS_CREATE_THREAD");
+			}
+			else if (handle_access_mask & PROCESS_DUP_HANDLE)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_DUP_HANDLE;
+				DEBUG_LOG("Stripped PROCESS_DUP_HANDLE");
+			}
+			else if (handle_access_mask & PROCESS_QUERY_INFORMATION)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_QUERY_INFORMATION;
+				DEBUG_LOG("Stripped PROCESS_QUERY_INFORMATION");
+			}
+			else if (handle_access_mask & PROCESS_QUERY_LIMITED_INFORMATION)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_QUERY_LIMITED_INFORMATION;
+				DEBUG_LOG("Stripped PROCESS_QUERY_LIMITED_INFORMATION");
+			}
+			else if (handle_access_mask & PROCESS_SET_INFORMATION)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_SET_INFORMATION;
+				DEBUG_LOG("Stripped PROCESS_SET_INFORMATION");
+			}
+			else if (handle_access_mask & PROCESS_SET_QUOTA)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_SET_QUOTA;
+				DEBUG_LOG("Stripped PROCESS_SET_QUOTA");
+			}
+			else if (handle_access_mask & PROCESS_SUSPEND_RESUME)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_SUSPEND_RESUME;
+				DEBUG_LOG("Stripped PROCESS_SUSPEND_RESUME ");
+			}
+			else if (handle_access_mask & PROCESS_TERMINATE)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_TERMINATE;
+				DEBUG_LOG("Stripped PROCESS_TERMINATE");
+			}
+			else if (handle_access_mask & PROCESS_VM_OPERATION)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_VM_OPERATION;
+				DEBUG_LOG("Stripped PROCESS_VM_OPERATION");
+			}
+			else if (handle_access_mask & PROCESS_VM_READ)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_VM_READ;
+				DEBUG_LOG("Stripped PROCESS_VM_READ");
+			}
+			else if (handle_access_mask & PROCESS_VM_WRITE)
+			{
+				Entry->GrantedAccessBits &= ~PROCESS_VM_WRITE;
+				DEBUG_LOG("Stripped PROCESS_VM_WRITE");
+			}
 		}
 	}
 
@@ -95,10 +157,10 @@ NTSTATUS EnumerateProcessHandles(
 		return STATUS_INVALID_PARAMETER_1;
 	}
 
-	DEBUG_LOG("Beginning to enumerate process handles for proc: %llx", (UINT64)Process);
+	if (Process == PsInitialSystemProcess)
+		return STATUS_SUCCESS;
 
-	NTSTATUS status = STATUS_SUCCESS;
-	BOOLEAN result;
+	DEBUG_LOG("Beginning to enumerate process handles for proc: %llx", (UINT64)Process);
 
 	PHANDLE_TABLE handle_table = *(PHANDLE_TABLE*)((uintptr_t)Process + EPROCESS_HANDLE_TABLE_OFFSET);
 
@@ -108,16 +170,19 @@ NTSTATUS EnumerateProcessHandles(
 		return STATUS_ABANDONED;
 	}
 
-	result = ExEnumHandleTable(
+#pragma warning(push)
+#pragma warning(suppress : 6387)
+
+	BOOLEAN result = ExEnumHandleTable(
 		handle_table,
 		EnumHandleCallback,
 		NULL,
 		NULL
 	);
 
-	DEBUG_LOG("Result: %lx", result);
+#pragma warning(pop)
 
-	return status;
+	return STATUS_SUCCESS;
 }
 
 VOID EnumerateProcessList()
