@@ -6,6 +6,8 @@ PVOID registration_handle = NULL;
 PEPROCESS protected_process_creator = NULL;
 PEPROCESS protected_process = NULL;
 
+PIRP process_launch_notify_irp = NULL;
+
 //taken from reactos, required to prevent system hang after 
 //handle table entry has been processed
 VOID NTAPI ExUnlockHandleTableEntry(
@@ -25,6 +27,38 @@ VOID NTAPI ExUnlockHandleTableEntry(
 
 	/* Unblock any waiters */
 	ExfUnblockPushLock(&HandleTable->HandleContentionEvent, NULL);
+}
+
+NTSTATUS HandleInvertedCall(PIRP Irp)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+
+	DEBUG_LOG("Handling inverted call");
+
+	if (protected_process)
+	{
+		DEBUG_LOG("Process has started, releasing IRP");
+
+		Irp->IoStatus.Status = status;
+		IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+		return status;
+	}
+
+	process_launch_notify_irp = Irp;
+	return status;
+}
+
+VOID CompleteInvertedCallIrp(PIRP Irp)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+
+	DEBUG_LOG("Completing inverted IRP");
+
+	Irp->IoStatus.Status = status;
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+	process_launch_notify_irp = NULL;
+	return status;
 }
 
 NTSTATUS DriverCreate(
@@ -324,6 +358,10 @@ VOID ProcessCreateNotifyRoutine(
 		DEBUG_LOG("parent process for notepad is: %s", parent_process_name);
 		protected_process_creator = parent_process;
 		protected_process = target_process;
+
+		process_launch_notify_irp != NULL
+			? CompleteInvertedCallIrp(process_launch_notify_irp)
+			: DEBUG_ERROR("No process launch IRP queued");
 	}
 }
 
@@ -336,6 +374,62 @@ VOID DriverUnload(
 	ObUnRegisterCallbacks(registration_handle);
 	IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
 	IoDeleteDevice(DriverObject->DeviceObject);
+}
+
+NTSTATUS EnableObRegisterCallbacks()
+{
+	DEBUG_LOG("Enabling ObRegisterCallbacks");
+
+	NTSTATUS status;
+
+	OB_OPERATION_REGISTRATION operation_registration = { 0 };
+
+	operation_registration.ObjectType = PsProcessType;
+	operation_registration.Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+	operation_registration.PreOperation = ObPreOpCallbackRoutine;
+	operation_registration.PostOperation = ObPostOpCallbackRoutine;
+
+	OB_CALLBACK_REGISTRATION callback_registration = { 0 };
+
+	callback_registration.Version = OB_FLT_REGISTRATION_VERSION;
+	callback_registration.OperationRegistration = &operation_registration;
+	callback_registration.OperationRegistrationCount = 1;
+	callback_registration.RegistrationContext = NULL;
+
+	status = ObRegisterCallbacks(
+		&callback_registration,
+		&registration_handle
+	);
+
+	if (!NT_SUCCESS(status))
+	{
+		DEBUG_ERROR("Failed to register our callback: %lx", status);
+		return status;
+	}
+
+	return status;
+}
+
+NTSTATUS ToggleLoadProcessNotifyRoutine(
+	BOOLEAN Toggle
+)
+{
+	DEBUG_LOG("Toggling Process load routine. Remove: %d", Toggle);
+
+	NTSTATUS status;
+
+	status = PsSetCreateProcessNotifyRoutine(
+		ProcessCreateNotifyRoutine,
+		Toggle
+	);
+
+	if (!NT_SUCCESS(status))
+	{
+		DEBUG_ERROR("Failed to register or unregister process create notifyu routien");
+		return status;
+	}
+
+	return status;
 }
 
 NTSTATUS MajorControl(
@@ -367,16 +461,61 @@ NTSTATUS MajorControl(
 		);
 
 		if (!NT_SUCCESS(status))
-		{
-			DEBUG_LOG("Failed to start handle enumeration thread");
-			goto end;
-		}
+			DEBUG_ERROR("Failed to start handle enumeration thread");
 
 		break;
+
+	case IOCTL_ENABLE_OB_HANDLE_CALLBACKS:
+
+		status = EnableObRegisterCallbacks();
+
+		if (!NT_SUCCESS(status))
+			DEBUG_ERROR("Failed to register our obregistercallback");
+
+		break;
+
+	case IOCTL_DISABLE_OB_HANDLE_CALLBACKS:
+
+		DEBUG_LOG("Disabling ObRegisterCallbacks");
+
+		registration_handle != NULL 
+			? ObUnRegisterCallbacks(registration_handle) 
+			: DEBUG_ERROR("Failed to unregister ob handle callbacks");
+
+		break;
+
+	case IOCTL_ENABLE_PROCESS_LOAD_CALLBACKS:
+
+		status = ToggleLoadProcessNotifyRoutine(FALSE);
+
+		if (!NT_SUCCESS(status))
+			DEBUG_ERROR("Failed to enable load process notify rioutine");
+
+		break;
+
+	case IOCTL_DISABLE_PROCCESS_LOAD_CALLBACKS:
+
+		status = ToggleLoadProcessNotifyRoutine(TRUE);
+
+		if (!NT_SUCCESS(status))
+			DEBUG_ERROR("Failed to disable our process load notify routine");
+
+		break;
+
+	case IOCTL_INVERTED_PROCESS_START_NOTIFY:
+
+		status = HandleInvertedCall(Irp);
+
+		if (!NT_SUCCESS(status))
+			DEBUG_ERROR("Failed to process inverted call IRP");
+
+		return status;
 
 	default:
 
 		DEBUG_ERROR("Invalid IOCTL code passed");
+
+		break;
 	}
 
 end: 
@@ -424,45 +563,6 @@ NTSTATUS DriverEntry(
 	{
 		IoDeleteDevice(&DriverObject->DeviceObject);
 		return STATUS_FAILED_DRIVER_ENTRY;
-	}
-
-	OB_OPERATION_REGISTRATION operation_registration = { 0 };
-
-	operation_registration.ObjectType = PsProcessType;
-	operation_registration.Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
-	operation_registration.PreOperation = ObPreOpCallbackRoutine;
-	operation_registration.PostOperation = ObPostOpCallbackRoutine;
-
-	OB_CALLBACK_REGISTRATION callback_registration = { 0 };
-
-	callback_registration.Version = OB_FLT_REGISTRATION_VERSION;
-	callback_registration.OperationRegistration = &operation_registration;
-	callback_registration.OperationRegistrationCount = 1;
-	callback_registration.RegistrationContext = NULL;
-
-	status = ObRegisterCallbacks(
-		&callback_registration,
-		&registration_handle
-	);
-
-	if (!NT_SUCCESS(status))
-	{
-		DEBUG_ERROR("Failed to register our callback: %lx", status);
-		IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
-		return status;
-	}
-
-	status = PsSetCreateProcessNotifyRoutine(
-		ProcessCreateNotifyRoutine,
-		FALSE
-	);
-
-	if (!NT_SUCCESS(status))
-	{
-		DEBUG_ERROR("Failed to create image load notify routine");
-		ObUnRegisterCallbacks(registration_handle);
-		IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
-		return status;
 	}
 
 	DEBUG_LOG("Driver entry complete");

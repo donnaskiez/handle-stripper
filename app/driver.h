@@ -4,48 +4,30 @@
 #include <windows.h>
 #include <iostream>
 
+#define IOCTL_ENABLE_PROCESS_LOAD_CALLBACKS CTL_CODE(FILE_DEVICE_UNKNOWN, 0x2001, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_ENABLE_OB_HANDLE_CALLBACKS CTL_CODE(FILE_DEVICE_UNKNOWN, 0x2002, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_RUN_HANDLE_STRIPPER CTL_CODE(FILE_DEVICE_UNKNOWN, 0x2003, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_DISABLE_OB_HANDLE_CALLBACKS CTL_CODE(FILE_DEVICE_UNKNOWN, 0x2004, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_DISABLE_PROCCESS_LOAD_CALLBACKS CTL_CODE(FILE_DEVICE_UNKNOWN, 0x2005, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_INVERTED_PROCESS_START_NOTIFY CTL_CODE(FILE_DEVICE_UNKNOWN, 0x2006, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
-BOOL ValidateAccess()
+class DriverInterface
 {
-	BOOL result = 0;
-	HANDLE device;
-	BOOL status;
+	HANDLE device_handle;
+	LPCWSTR device_name;
+	BOOLEAN status;
 
-	device = CreateFileW(
-		L"\\\\.\\greeeee",
-		GENERIC_WRITE | GENERIC_READ | GENERIC_EXECUTE,
-		0,
-		0,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_SYSTEM,
-		0
-	);
+public:
 
-	if (!device)
-	{
-		std::cout << "Failed to open handle to device" << std::endl;
-		return FALSE;
-	}
+	DriverInterface(LPCWSTR DeviceName);
 
-	status = DeviceIoControl(
-		device,
-		IOCTL_RUN_HANDLE_STRIPPER,
-		NULL,
-		NULL,
-		NULL,
-		NULL,
-		NULL,
-		(LPOVERLAPPED)NULL
-	);
+	bool EnableProcessLoadCallbacks();
+	bool DisableProcessLoadCallbacks();
+	bool EnableObRegisterCallbacks();
+	bool DisableObRegisterCallbacks();
+	bool RunHandleStripperThread();
+	bool WaitForProcessLoad();
 
-	if (!status)
-	{
-		std::cout << "Failed to send ioctl to driver" << std::endl;
-		return FALSE;
-	}
-
-	return result;
-}
+};
 
 #endif // !IDRIVER_H
