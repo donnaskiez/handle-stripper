@@ -2,7 +2,11 @@
 
 #include "types.h"
 
+//For if we unload the driver at the same time while we diable 
+//our ObRegisterCallbacks
+KMUTEX mutex;
 PVOID registration_handle = NULL;
+
 PEPROCESS protected_process_creator = NULL;
 PEPROCESS protected_process = NULL;
 
@@ -29,7 +33,9 @@ VOID NTAPI ExUnlockHandleTableEntry(
 	ExfUnblockPushLock(&HandleTable->HandleContentionEvent, NULL);
 }
 
-NTSTATUS HandleInvertedCall(PIRP Irp)
+NTSTATUS HandleInvertedCall(
+	_In_ PIRP Irp
+)
 {
 	NTSTATUS status = STATUS_SUCCESS;
 
@@ -49,7 +55,9 @@ NTSTATUS HandleInvertedCall(PIRP Irp)
 	return status;
 }
 
-VOID CompleteInvertedCallIrp(PIRP Irp)
+VOID CompleteInvertedCallIrp(
+	_In_ PIRP Irp
+)
 {
 	NTSTATUS status = STATUS_SUCCESS;
 
@@ -370,8 +378,14 @@ VOID DriverUnload(
 )
 {
 	DEBUG_LOG("Unloading driver");
+
+	KeWaitForSingleObject(&mutex, Executive, KernelMode, FALSE, NULL);
+
+	if (registration_handle)
+		ObUnRegisterCallbacks(registration_handle);
+
+	KeReleaseMutex(&mutex, FALSE);
 	PsSetCreateProcessNotifyRoutine(ProcessCreateNotifyRoutine, TRUE);
-	ObUnRegisterCallbacks(registration_handle);
 	IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
 	IoDeleteDevice(DriverObject->DeviceObject);
 }
@@ -411,7 +425,7 @@ NTSTATUS EnableObRegisterCallbacks()
 }
 
 NTSTATUS ToggleLoadProcessNotifyRoutine(
-	BOOLEAN Toggle
+	_In_ BOOLEAN Toggle
 )
 {
 	DEBUG_LOG("Toggling Process load routine. Remove: %d", Toggle);
@@ -432,9 +446,17 @@ NTSTATUS ToggleLoadProcessNotifyRoutine(
 	return status;
 }
 
+VOID ModifyRegistrationHandle(
+	_In_ UINT64 NewValue)
+{
+	KeWaitForSingleObject(&mutex, Executive, KernelMode, FALSE, NULL);
+	registration_handle = (PVOID)NewValue;
+	KeReleaseMutex(&mutex, FALSE);
+}
+
 NTSTATUS MajorControl(
-	PDRIVER_OBJECT DriverObject,
-	PIRP Irp
+	_In_ PDRIVER_OBJECT DriverObject,
+	_In_ PIRP Irp
 )
 {
 	UNREFERENCED_PARAMETER(DriverObject);
@@ -478,10 +500,16 @@ NTSTATUS MajorControl(
 
 		DEBUG_LOG("Disabling ObRegisterCallbacks");
 
-		registration_handle != NULL 
-			? ObUnRegisterCallbacks(registration_handle) 
-			: DEBUG_ERROR("Failed to unregister ob handle callbacks");
+		KeWaitForSingleObject(&mutex, Executive, KernelMode, FALSE, NULL);
+		if (registration_handle)
+		{
+			KeReleaseMutex(&mutex, FALSE);
+			ObUnRegisterCallbacks(registration_handle);
+			ModifyRegistrationHandle(NULL);
+			break;
+		}
 
+		DEBUG_ERROR("registration handle already null");
 		break;
 
 	case IOCTL_ENABLE_PROCESS_LOAD_CALLBACKS:
@@ -528,8 +556,8 @@ end:
 }
 
 NTSTATUS DriverEntry(
-	PDRIVER_OBJECT DriverObject,
-	PUNICODE_STRING RegistryPath
+	_In_ PDRIVER_OBJECT DriverObject,
+	_In_ PUNICODE_STRING RegistryPath
 )
 {
 	UNREFERENCED_PARAMETER(RegistryPath);
@@ -564,6 +592,8 @@ NTSTATUS DriverEntry(
 		IoDeleteDevice(&DriverObject->DeviceObject);
 		return STATUS_FAILED_DRIVER_ENTRY;
 	}
+
+	KeInitializeMutex(&mutex, 0);
 
 	DEBUG_LOG("Driver entry complete");
 
