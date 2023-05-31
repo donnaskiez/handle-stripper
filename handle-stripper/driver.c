@@ -48,6 +48,15 @@ BOOLEAN CheckIfRegistrationHandleIsNull()
 	return result;
 }
 
+VOID ModifyRegistrationHandle(
+	_In_ UINT64 NewValue
+)
+{
+	KeWaitForSingleObject(&registration_handle_mutex, Executive, KernelMode, FALSE, NULL);
+	registration_handle = (PVOID)NewValue;
+	KeReleaseMutex(&registration_handle_mutex, FALSE);
+}
+
 NTSTATUS HandleInvertedCall(
 	_In_ PIRP Irp
 )
@@ -249,18 +258,17 @@ VOID EnumerateProcessList()
 
 	if (!base_process)
 	{
-		DbgPrint("Failed to get system process struct");
+		DEBUG_ERROR("Failed to get system process struct");
 		return STATUS_NOT_FOUND;
 	}
 
 	PEPROCESS current_process = base_process;
 
 	do 
-	{
+	{ 
 		EnumerateProcessHandles(current_process);
 
 		PLIST_ENTRY list = (PLIST_ENTRY)((uintptr_t)current_process + EPROCESS_PLIST_ENTRY_OFFSET);
-
 		current_process = (PEPROCESS)((uintptr_t)list->Flink - EPROCESS_PLIST_ENTRY_OFFSET);
 
 	} while (current_process != base_process || !current_process);
@@ -462,14 +470,6 @@ NTSTATUS ToggleLoadProcessNotifyRoutine(
 	}
 
 	return status;
-}
-
-VOID ModifyRegistrationHandle(
-	_In_ UINT64 NewValue)
-{
-	KeWaitForSingleObject(&registration_handle_mutex, Executive, KernelMode, FALSE, NULL);
-	registration_handle = (PVOID)NewValue;
-	KeReleaseMutex(&registration_handle_mutex, FALSE);
 }
 
 NTSTATUS MajorControl(
