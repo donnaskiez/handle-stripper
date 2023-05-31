@@ -2,16 +2,13 @@
 
 #include "types.h"
 
-//For if we unload the driver at the same time while we diable 
-//our ObRegisterCallbacks
-KMUTEX registration_handle_mutex;
-PVOID registration_handle = NULL;
-
 KMUTEX protected_process_mutex;
+KMUTEX process_launch_irp_mutex;
+KMUTEX registration_handle_mutex;
+
 PEPROCESS protected_process_creator = NULL;
 PEPROCESS protected_process = NULL;
-
-KMUTEX process_launch_irp_mutex;
+PVOID registration_handle = NULL;
 PIRP process_launch_notify_irp = NULL;
 
 //taken from reactos, required to prevent system hang after 
@@ -56,7 +53,6 @@ NTSTATUS HandleInvertedCall(
 )
 {
 	NTSTATUS status = STATUS_SUCCESS;
-
 	DEBUG_LOG("Handling inverted call");
 
 	if (!CheckIfProtectedProcessIsNull())
