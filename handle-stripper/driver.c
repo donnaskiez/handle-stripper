@@ -4,12 +4,14 @@
 
 //For if we unload the driver at the same time while we diable 
 //our ObRegisterCallbacks
-KMUTEX mutex;
+KMUTEX registration_handle_mutex;
 PVOID registration_handle = NULL;
 
+KMUTEX protected_process_mutex;
 PEPROCESS protected_process_creator = NULL;
 PEPROCESS protected_process = NULL;
 
+KMUTEX process_launch_irp_mutex;
 PIRP process_launch_notify_irp = NULL;
 
 //taken from reactos, required to prevent system hang after 
@@ -33,6 +35,22 @@ VOID NTAPI ExUnlockHandleTableEntry(
 	ExfUnblockPushLock(&HandleTable->HandleContentionEvent, NULL);
 }
 
+BOOLEAN CheckIfProtectedProcessIsNull()
+{
+	KeWaitForSingleObject(&protected_process_mutex, Executive, KernelMode, FALSE, NULL);
+	BOOLEAN result = protected_process == NULL ? 1 : 0;
+	KeReleaseMutex(&protected_process_mutex, FALSE);
+	return result;
+}
+
+BOOLEAN CheckIfRegistrationHandleIsNull()
+{
+	KeWaitForSingleObject(&registration_handle_mutex, Executive, KernelMode, FALSE, NULL);
+	BOOLEAN result = registration_handle == NULL ? 1 : 0;
+	KeReleaseMutex(&registration_handle_mutex, FALSE);
+	return result;
+}
+
 NTSTATUS HandleInvertedCall(
 	_In_ PIRP Irp
 )
@@ -41,7 +59,7 @@ NTSTATUS HandleInvertedCall(
 
 	DEBUG_LOG("Handling inverted call");
 
-	if (protected_process)
+	if (!CheckIfProtectedProcessIsNull())
 	{
 		DEBUG_LOG("Process has started, releasing IRP");
 
@@ -51,7 +69,9 @@ NTSTATUS HandleInvertedCall(
 		return status;
 	}
 
+	KeWaitForSingleObject(&process_launch_irp_mutex, Executive, KernelMode, FALSE, NULL);
 	process_launch_notify_irp = Irp;
+	KeReleaseMutex(&process_launch_irp_mutex, 0);
 	return status;
 }
 
@@ -365,11 +385,16 @@ VOID ProcessCreateNotifyRoutine(
 	{
 		DEBUG_LOG("parent process for notepad is: %s", parent_process_name);
 		protected_process_creator = parent_process;
-		protected_process = target_process;
 
+		KeWaitForSingleObject(&protected_process_mutex, Executive, KernelMode, FALSE, NULL);
+		protected_process = target_process;
+		KeReleaseMutex(&protected_process_mutex, 0);
+
+		KeWaitForSingleObject(&process_launch_irp_mutex, Executive, KernelMode, FALSE, NULL);
 		process_launch_notify_irp != NULL
 			? CompleteInvertedCallIrp(process_launch_notify_irp)
 			: DEBUG_ERROR("No process launch IRP queued");
+		KeReleaseMutex(&process_launch_irp_mutex, 0);
 	}
 }
 
@@ -379,12 +404,9 @@ VOID DriverUnload(
 {
 	DEBUG_LOG("Unloading driver");
 
-	KeWaitForSingleObject(&mutex, Executive, KernelMode, FALSE, NULL);
-
-	if (registration_handle)
+	if (!CheckIfRegistrationHandleIsNull())
 		ObUnRegisterCallbacks(registration_handle);
 
-	KeReleaseMutex(&mutex, FALSE);
 	PsSetCreateProcessNotifyRoutine(ProcessCreateNotifyRoutine, TRUE);
 	IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
 	IoDeleteDevice(DriverObject->DeviceObject);
@@ -449,9 +471,9 @@ NTSTATUS ToggleLoadProcessNotifyRoutine(
 VOID ModifyRegistrationHandle(
 	_In_ UINT64 NewValue)
 {
-	KeWaitForSingleObject(&mutex, Executive, KernelMode, FALSE, NULL);
+	KeWaitForSingleObject(&registration_handle_mutex, Executive, KernelMode, FALSE, NULL);
 	registration_handle = (PVOID)NewValue;
-	KeReleaseMutex(&mutex, FALSE);
+	KeReleaseMutex(&registration_handle_mutex, FALSE);
 }
 
 NTSTATUS MajorControl(
@@ -500,10 +522,8 @@ NTSTATUS MajorControl(
 
 		DEBUG_LOG("Disabling ObRegisterCallbacks");
 
-		KeWaitForSingleObject(&mutex, Executive, KernelMode, FALSE, NULL);
-		if (registration_handle)
+		if (!CheckIfRegistrationHandleIsNull())
 		{
-			KeReleaseMutex(&mutex, FALSE);
 			ObUnRegisterCallbacks(registration_handle);
 			ModifyRegistrationHandle(NULL);
 			break;
@@ -593,7 +613,9 @@ NTSTATUS DriverEntry(
 		return STATUS_FAILED_DRIVER_ENTRY;
 	}
 
-	KeInitializeMutex(&mutex, 0);
+	KeInitializeMutex(&registration_handle_mutex, 0);
+	KeInitializeMutex(&protected_process_mutex, 0);
+	KeInitializeMutex(&process_launch_irp_mutex, 0);
 
 	DEBUG_LOG("Driver entry complete");
 
