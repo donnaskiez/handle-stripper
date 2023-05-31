@@ -230,7 +230,7 @@ NTSTATUS EnumerateProcessHandles(
 	if (Process == PsInitialSystemProcess)
 		return STATUS_SUCCESS;
 
-	DEBUG_LOG("Beginning to enumerate process handles for proc: %llx", (UINT64)Process);
+	//DEBUG_LOG("Beginning to enumerate process handles for proc: %llx", (UINT64)Process);
 
 	PHANDLE_TABLE handle_table = *(PHANDLE_TABLE*)((uintptr_t)Process + EPROCESS_HANDLE_TABLE_OFFSET);
 

@@ -44,30 +44,17 @@ int main()
 
     std::this_thread::sleep_for(std::chrono::seconds(5));
 
-    LOG_INFO("Running handle stripped thread");
-
-    if (!driver.RunHandleStripperThread())
+    while (true)
     {
-        LOG_ERROR("Failed to run handle stripper thread");
-        return ERROR;
-    }
+        LOG_INFO("Running handle stripper thread");
 
-    std::this_thread::sleep_for(std::chrono::seconds(5));
+        if (!driver.RunHandleStripperThread())
+        {
+            LOG_ERROR("Failed to run handle stripper thread");
+            return ERROR;
+        }
 
-    LOG_INFO("Disabling ObRegisterCallbacks");
-
-    if (!driver.DisableObRegisterCallbacks())
-    {
-        LOG_ERROR("Failed to disable obregistercallbacks");
-        return ERROR;
-    }
-
-    LOG_INFO("Disabling process load callbacks");
-
-    if (!driver.DisableProcessLoadCallbacks())
-    {
-        LOG_ERROR("Failed to disable process load callbacks");
-        return ERROR;
+        std::this_thread::sleep_for(std::chrono::seconds(10));
     }
 
     int lol;
