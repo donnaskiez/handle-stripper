@@ -35,7 +35,7 @@ VOID NTAPI ExUnlockHandleTableEntry(
 BOOLEAN CheckIfProtectedProcessIsNull()
 {
 	KeWaitForSingleObject(&protected_process_mutex, Executive, KernelMode, FALSE, NULL);
-	BOOLEAN result = protected_process == NULL ? 1 : 0;
+	BOOLEAN result = protected_process == NULL ? TRUE : FALSE;
 	KeReleaseMutex(&protected_process_mutex, FALSE);
 	return result;
 }
@@ -43,7 +43,7 @@ BOOLEAN CheckIfProtectedProcessIsNull()
 BOOLEAN CheckIfRegistrationHandleIsNull()
 {
 	KeWaitForSingleObject(&registration_handle_mutex, Executive, KernelMode, FALSE, NULL);
-	BOOLEAN result = registration_handle == NULL ? 1 : 0;
+	BOOLEAN result = registration_handle == NULL ? TRUE : FALSE;
 	KeReleaseMutex(&registration_handle_mutex, FALSE);
 	return result;
 }
@@ -67,12 +67,15 @@ NTSTATUS HandleInvertedCall(
 	if (!CheckIfProtectedProcessIsNull())
 	{
 		DEBUG_LOG("Process has started, releasing IRP");
-
 		Irp->IoStatus.Status = status;
 		IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
 		return status;
 	}
+
+	//Must do both
+	DEBUG_LOG("Marking IRP as pending");
+	Irp->IoStatus.Status = STATUS_PENDING;
+	IoMarkIrpPending(Irp);
 
 	KeWaitForSingleObject(&process_launch_irp_mutex, Executive, KernelMode, FALSE, NULL);
 	process_launch_notify_irp = Irp;
@@ -252,7 +255,7 @@ NTSTATUS EnumerateProcessHandles(
 	return STATUS_SUCCESS;
 }
 
-VOID EnumerateProcessList()
+VOID EnumerateProcessListWithCallbackFunction(PVOID Function)
 {
 	PEPROCESS base_process = PsInitialSystemProcess;
 
@@ -266,7 +269,8 @@ VOID EnumerateProcessList()
 
 	do 
 	{ 
-		EnumerateProcessHandles(current_process);
+		VOID (*callback_function_ptr)(EPROCESS) = Function;
+		(*callback_function_ptr)(current_process);
 
 		PLIST_ENTRY list = (PLIST_ENTRY)((uintptr_t)current_process + EPROCESS_PLIST_ENTRY_OFFSET);
 		current_process = (PEPROCESS)((uintptr_t)list->Flink - EPROCESS_PLIST_ENTRY_OFFSET);
@@ -402,6 +406,27 @@ VOID ProcessCreateNotifyRoutine(
 	}
 }
 
+VOID CheckIfProtectedProcessIsRunningAtDriverEntry(
+	_In_ PEPROCESS Process
+)
+{
+	CHAR process_name[15];
+
+	RtlCopyMemory(
+		&process_name,
+		(PVOID)((uintptr_t)Process + EPROCESS_IMAGE_FILE_NAME_OFFSET),
+		sizeof(process_name)
+	);
+
+	if (!strcmp(process_name, protected_process_name))
+	{
+		DEBUG_LOG("Protected process is already running, setting pointer");
+		KeWaitForSingleObject(&protected_process_mutex, Executive, KernelMode, FALSE, NULL);
+		protected_process = Process;
+		KeReleaseMutex(&protected_process_mutex, 0);
+	}
+}
+
 VOID DriverUnload(
 	_In_ PDRIVER_OBJECT DriverObject
 )
@@ -496,8 +521,8 @@ NTSTATUS MajorControl(
 			NULL,
 			NULL,
 			NULL,
-			EnumerateProcessList,
-			NULL
+			EnumerateProcessListWithCallbackFunction,
+			&EnumerateProcessHandles
 		);
 
 		if (!NT_SUCCESS(status))
@@ -565,9 +590,7 @@ NTSTATUS MajorControl(
 end: 
 
 	Irp->IoStatus.Status = status;
-
 	IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
 	return status;
 }
 
@@ -612,6 +635,8 @@ NTSTATUS DriverEntry(
 	KeInitializeMutex(&registration_handle_mutex, 0);
 	KeInitializeMutex(&protected_process_mutex, 0);
 	KeInitializeMutex(&process_launch_irp_mutex, 0);
+
+	EnumerateProcessListWithCallbackFunction(&CheckIfProtectedProcessIsRunningAtDriverEntry);
 
 	DEBUG_LOG("Driver entry complete");
 
