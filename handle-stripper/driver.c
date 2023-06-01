@@ -22,29 +22,29 @@ VOID NTAPI ExUnlockHandleTableEntry(
 	PAGED_CODE();
 
 	/* Sanity check */
-	ASSERT((KeGetCurrentThread()->CombinedApcDisable != 0) ||
-		(KeGetCurrentIrql() == APC_LEVEL));
+	ASSERT( ( KeGetCurrentThread()->CombinedApcDisable != 0 ) ||
+		( KeGetCurrentIrql() == APC_LEVEL ) );
 
 	/* Set the lock bit and make sure it wasn't earlier */
-	OldValue = InterlockedOr((PLONG)&HandleTableEntry->VolatileLowValue, 1);
+	OldValue = InterlockedOr( ( PLONG )&HandleTableEntry->VolatileLowValue, 1 );
 
 	/* Unblock any waiters */
-	ExfUnblockPushLock(&HandleTable->HandleContentionEvent, NULL);
+	ExfUnblockPushLock( &HandleTable->HandleContentionEvent, NULL );
 }
 
 BOOLEAN CheckIfProtectedProcessIsNull()
 {
-	KeWaitForSingleObject(&protected_process_mutex, Executive, KernelMode, FALSE, NULL);
+	KeWaitForSingleObject( &protected_process_mutex, Executive, KernelMode, FALSE, NULL );
 	BOOLEAN result = protected_process == NULL ? TRUE : FALSE;
-	KeReleaseMutex(&protected_process_mutex, FALSE);
+	KeReleaseMutex( &protected_process_mutex, FALSE );
 	return result;
 }
 
 BOOLEAN CheckIfRegistrationHandleIsNull()
 {
-	KeWaitForSingleObject(&registration_handle_mutex, Executive, KernelMode, FALSE, NULL);
+	KeWaitForSingleObject( &registration_handle_mutex, Executive, KernelMode, FALSE, NULL );
 	BOOLEAN result = registration_handle == NULL ? TRUE : FALSE;
-	KeReleaseMutex(&registration_handle_mutex, FALSE);
+	KeReleaseMutex( &registration_handle_mutex, FALSE );
 	return result;
 }
 
@@ -52,9 +52,9 @@ VOID ModifyRegistrationHandle(
 	_In_ UINT64 NewValue
 )
 {
-	KeWaitForSingleObject(&registration_handle_mutex, Executive, KernelMode, FALSE, NULL);
-	registration_handle = (PVOID)NewValue;
-	KeReleaseMutex(&registration_handle_mutex, FALSE);
+	KeWaitForSingleObject( &registration_handle_mutex, Executive, KernelMode, FALSE, NULL );
+	registration_handle = ( PVOID )NewValue;
+	KeReleaseMutex( &registration_handle_mutex, FALSE );
 }
 
 NTSTATUS HandleInvertedCall(
@@ -62,24 +62,24 @@ NTSTATUS HandleInvertedCall(
 )
 {
 	NTSTATUS status = STATUS_SUCCESS;
-	DEBUG_LOG("Handling inverted call");
+	DEBUG_LOG( "Handling inverted call" );
 
-	if (!CheckIfProtectedProcessIsNull())
+	if ( !CheckIfProtectedProcessIsNull() )
 	{
-		DEBUG_LOG("Process has started, releasing IRP");
+		DEBUG_LOG( "Process has started, releasing IRP" );
 		Irp->IoStatus.Status = status;
-		IoCompleteRequest(Irp, IO_NO_INCREMENT);
+		IoCompleteRequest( Irp, IO_NO_INCREMENT );
 		return status;
 	}
 
 	//Must do both
-	DEBUG_LOG("Marking IRP as pending");
+	DEBUG_LOG( "Marking IRP as pending" );
 	Irp->IoStatus.Status = STATUS_PENDING;
-	IoMarkIrpPending(Irp);
+	IoMarkIrpPending( Irp );
 
-	KeWaitForSingleObject(&process_launch_irp_mutex, Executive, KernelMode, FALSE, NULL);
+	KeWaitForSingleObject( &process_launch_irp_mutex, Executive, KernelMode, FALSE, NULL );
 	process_launch_notify_irp = Irp;
-	KeReleaseMutex(&process_launch_irp_mutex, 0);
+	KeReleaseMutex( &process_launch_irp_mutex, 0 );
 	return status;
 }
 
@@ -89,10 +89,10 @@ VOID CompleteInvertedCallIrp(
 {
 	NTSTATUS status = STATUS_SUCCESS;
 
-	DEBUG_LOG("Completing inverted IRP");
+	DEBUG_LOG( "Completing inverted IRP" );
 
 	Irp->IoStatus.Status = status;
-	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+	IoCompleteRequest( Irp, IO_NO_INCREMENT );
 	process_launch_notify_irp = NULL;
 	return status;
 }
@@ -102,11 +102,11 @@ NTSTATUS DriverCreate(
 	_In_ PIRP Irp
 )
 {
-	UNREFERENCED_PARAMETER(DeviceObject);
+	UNREFERENCED_PARAMETER( DeviceObject );
 
-	DEBUG_LOG("Handle to symbolic link %wZ opened", DEVICE_SYMBOLIC_LINK);
+	DEBUG_LOG( "Handle to symbolic link %wZ opened", DEVICE_SYMBOLIC_LINK );
 
-	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+	IoCompleteRequest( Irp, IO_NO_INCREMENT );
 	return Irp->IoStatus.Status;
 }
 
@@ -115,11 +115,11 @@ NTSTATUS DriverClose(
 	_In_ PIRP Irp
 )
 {
-	UNREFERENCED_PARAMETER(DeviceObject);
+	UNREFERENCED_PARAMETER( DeviceObject );
 
-	DEBUG_LOG("Handle to symbolic link %wZ closed", DEVICE_SYMBOLIC_LINK);
+	DEBUG_LOG( "Handle to symbolic link %wZ closed", DEVICE_SYMBOLIC_LINK );
 
-	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+	IoCompleteRequest( Irp, IO_NO_INCREMENT );
 	return Irp->IoStatus.Status;
 }
 
@@ -130,86 +130,86 @@ BOOLEAN EnumHandleCallback(
 	_In_ PVOID Context
 )
 {
-	PVOID object_header = GET_OBJECT_HEADER_FROM_HANDLE(Entry->ObjectPointerBits);
+	PVOID object_header = GET_OBJECT_HEADER_FROM_HANDLE( Entry->ObjectPointerBits );
 
 	//Object header is the first 30 bytes of the object
-	PVOID object = (uintptr_t)object_header + OBJECT_HEADER_SIZE;
+	PVOID object = ( uintptr_t )object_header + OBJECT_HEADER_SIZE;
 
-	POBJECT_TYPE object_type = ObGetObjectType(object);
+	POBJECT_TYPE object_type = ObGetObjectType( object );
 
-	if (!RtlCompareUnicodeString(&object_type->Name, &OBJECT_TYPE_PROCESS, TRUE))
+	if ( !RtlCompareUnicodeString( &object_type->Name, &OBJECT_TYPE_PROCESS, TRUE ) )
 	{
-		PEPROCESS process = (PEPROCESS)object;
+		PEPROCESS process = ( PEPROCESS )object;
 
-		if (process == protected_process)
+		if ( process == protected_process )
 		{
-			DEBUG_LOG("Handle references our protected process with access mask: %lx", (ACCESS_MASK)Entry->GrantedAccessBits);
-			ACCESS_MASK handle_access_mask = (ACCESS_MASK)Entry->GrantedAccessBits;
+			DEBUG_LOG( "Handle references our protected process with access mask: %lx", ( ACCESS_MASK )Entry->GrantedAccessBits );
+			ACCESS_MASK handle_access_mask = ( ACCESS_MASK )Entry->GrantedAccessBits;
 
-			if (handle_access_mask & PROCESS_CREATE_PROCESS)
+			if ( handle_access_mask & PROCESS_CREATE_PROCESS )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_CREATE_PROCESS;
-				DEBUG_LOG("Stripped PROCESS_CREATE_PROCESS");
+				DEBUG_LOG( "Stripped PROCESS_CREATE_PROCESS" );
 			}
-			else if (handle_access_mask & PROCESS_CREATE_THREAD)
+			else if ( handle_access_mask & PROCESS_CREATE_THREAD )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_CREATE_THREAD;
-				DEBUG_LOG("Stripped PROCESS_CREATE_THREAD");
+				DEBUG_LOG( "Stripped PROCESS_CREATE_THREAD" );
 			}
-			else if (handle_access_mask & PROCESS_DUP_HANDLE)
+			else if ( handle_access_mask & PROCESS_DUP_HANDLE )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_DUP_HANDLE;
-				DEBUG_LOG("Stripped PROCESS_DUP_HANDLE");
+				DEBUG_LOG( "Stripped PROCESS_DUP_HANDLE" );
 			}
-			else if (handle_access_mask & PROCESS_QUERY_INFORMATION)
+			else if ( handle_access_mask & PROCESS_QUERY_INFORMATION )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_QUERY_INFORMATION;
-				DEBUG_LOG("Stripped PROCESS_QUERY_INFORMATION");
+				DEBUG_LOG( "Stripped PROCESS_QUERY_INFORMATION" );
 			}
-			else if (handle_access_mask & PROCESS_QUERY_LIMITED_INFORMATION)
+			else if ( handle_access_mask & PROCESS_QUERY_LIMITED_INFORMATION )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_QUERY_LIMITED_INFORMATION;
-				DEBUG_LOG("Stripped PROCESS_QUERY_LIMITED_INFORMATION");
+				DEBUG_LOG( "Stripped PROCESS_QUERY_LIMITED_INFORMATION" );
 			}
-			else if (handle_access_mask & PROCESS_SET_INFORMATION)
+			else if ( handle_access_mask & PROCESS_SET_INFORMATION )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_SET_INFORMATION;
-				DEBUG_LOG("Stripped PROCESS_SET_INFORMATION");
+				DEBUG_LOG( "Stripped PROCESS_SET_INFORMATION" );
 			}
-			else if (handle_access_mask & PROCESS_SET_QUOTA)
+			else if ( handle_access_mask & PROCESS_SET_QUOTA )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_SET_QUOTA;
-				DEBUG_LOG("Stripped PROCESS_SET_QUOTA");
+				DEBUG_LOG( "Stripped PROCESS_SET_QUOTA" );
 			}
-			else if (handle_access_mask & PROCESS_SUSPEND_RESUME)
+			else if ( handle_access_mask & PROCESS_SUSPEND_RESUME )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_SUSPEND_RESUME;
-				DEBUG_LOG("Stripped PROCESS_SUSPEND_RESUME ");
+				DEBUG_LOG( "Stripped PROCESS_SUSPEND_RESUME " );
 			}
-			else if (handle_access_mask & PROCESS_TERMINATE)
+			else if ( handle_access_mask & PROCESS_TERMINATE )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_TERMINATE;
-				DEBUG_LOG("Stripped PROCESS_TERMINATE");
+				DEBUG_LOG( "Stripped PROCESS_TERMINATE" );
 			}
-			else if (handle_access_mask & PROCESS_VM_OPERATION)
+			else if ( handle_access_mask & PROCESS_VM_OPERATION )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_VM_OPERATION;
-				DEBUG_LOG("Stripped PROCESS_VM_OPERATION");
+				DEBUG_LOG( "Stripped PROCESS_VM_OPERATION" );
 			}
-			else if (handle_access_mask & PROCESS_VM_READ)
+			else if ( handle_access_mask & PROCESS_VM_READ )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_VM_READ;
-				DEBUG_LOG("Stripped PROCESS_VM_READ");
+				DEBUG_LOG( "Stripped PROCESS_VM_READ" );
 			}
-			else if (handle_access_mask & PROCESS_VM_WRITE)
+			else if ( handle_access_mask & PROCESS_VM_WRITE )
 			{
 				Entry->GrantedAccessBits &= ~PROCESS_VM_WRITE;
-				DEBUG_LOG("Stripped PROCESS_VM_WRITE");
+				DEBUG_LOG( "Stripped PROCESS_VM_WRITE" );
 			}
 		}
 	}
 
-	ExUnlockHandleTableEntry(HandleTable, Entry);
+	ExUnlockHandleTableEntry( HandleTable, Entry );
 
 	return FALSE;
 }
@@ -221,22 +221,28 @@ NTSTATUS EnumerateProcessHandles(
 	//Make sure we are running at an IRQL low enough that allows paging
 	PAGED_CODE();
 
-	if (!Process)
+	if ( !Process )
 	{
-		DEBUG_LOG("Process passed in null to enumprochandles");
+		DEBUG_LOG( "Process passed in null to enumprochandles" );
 		return STATUS_INVALID_PARAMETER_1;
 	}
 
-	if (Process == PsInitialSystemProcess)
+	if ( Process == PsInitialSystemProcess )
 		return STATUS_SUCCESS;
 
 	//DEBUG_LOG("Beginning to enumerate process handles for proc: %llx", (UINT64)Process);
 
-	PHANDLE_TABLE handle_table = *(PHANDLE_TABLE*)((uintptr_t)Process + EPROCESS_HANDLE_TABLE_OFFSET);
+	PHANDLE_TABLE handle_table = *( PHANDLE_TABLE* )( ( uintptr_t )Process + EPROCESS_HANDLE_TABLE_OFFSET );
 
-	if (!handle_table)
+	//if (!handle_table)
+	//{
+	//	DEBUG_ERROR("Handle table pointer is null");
+	//	return STATUS_ABANDONED;
+	//}
+
+	if ( !MmIsAddressValid( handle_table ) )
 	{
-		DEBUG_ERROR("Handle table pointer is null");
+		DEBUG_ERROR( "Handle table pointer is not valid" );
 		return STATUS_ABANDONED;
 	}
 
@@ -255,27 +261,27 @@ NTSTATUS EnumerateProcessHandles(
 	return STATUS_SUCCESS;
 }
 
-VOID EnumerateProcessListWithCallbackFunction(PVOID Function)
+VOID EnumerateProcessListWithCallbackFunction( PVOID Function )
 {
 	PEPROCESS base_process = PsInitialSystemProcess;
 
-	if (!base_process)
+	if ( !base_process )
 	{
-		DEBUG_ERROR("Failed to get system process struct");
+		DEBUG_ERROR( "Failed to get system process struct" );
 		return STATUS_NOT_FOUND;
 	}
 
 	PEPROCESS current_process = base_process;
 
-	do 
-	{ 
-		VOID (*callback_function_ptr)(EPROCESS) = Function;
-		(*callback_function_ptr)(current_process);
+	do
+	{
+		VOID( *callback_function_ptr )( PEPROCESS ) = Function;
+		( *callback_function_ptr )( current_process );
 
-		PLIST_ENTRY list = (PLIST_ENTRY)((uintptr_t)current_process + EPROCESS_PLIST_ENTRY_OFFSET);
-		current_process = (PEPROCESS)((uintptr_t)list->Flink - EPROCESS_PLIST_ENTRY_OFFSET);
+		PLIST_ENTRY list = ( PLIST_ENTRY )( ( uintptr_t )current_process + EPROCESS_PLIST_ENTRY_OFFSET );
+		current_process = ( PEPROCESS )( ( uintptr_t )list->Flink - EPROCESS_PLIST_ENTRY_OFFSET );
 
-	} while (current_process != base_process || !current_process);
+	} while ( current_process != base_process || !current_process );
 }
 
 OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
@@ -283,11 +289,11 @@ OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
 	_In_ POB_PRE_OPERATION_INFORMATION OperationInformation
 )
 {
-	UNREFERENCED_PARAMETER(RegistrationContext);
+	UNREFERENCED_PARAMETER( RegistrationContext );
 
 	//Completely strip permissions
 	ACCESS_MASK deny_access = SYNCHRONIZE | PROCESS_TERMINATE;
-	
+
 	//This mask to be used for lsass/csrss
 	ACCESS_MASK downgrade_access = 0;
 
@@ -295,51 +301,51 @@ OB_PREOP_CALLBACK_STATUS ObPreOpCallbackRoutine(
 	//is requesting to open said handle
 
 	PEPROCESS process_creator = PsGetCurrentProcess();
-	CHAR process_creator_name[15];
+	CHAR process_creator_name[ 15 ];
 
 	RtlCopyMemory(
 		&process_creator_name,
-		(PVOID)((uintptr_t)process_creator + EPROCESS_IMAGE_FILE_NAME_OFFSET),
-		sizeof(process_creator_name)
+		( PVOID )( ( uintptr_t )process_creator + EPROCESS_IMAGE_FILE_NAME_OFFSET ),
+		sizeof( process_creator_name )
 	);
 
 	//This gives us the target process for the handle
 
-	PEPROCESS target_process = (PEPROCESS)OperationInformation->Object;
-	CHAR target_name[15];
+	PEPROCESS target_process = ( PEPROCESS )OperationInformation->Object;
+	CHAR target_name[ 15 ];
 
 	RtlCopyMemory(
 		&target_name,
-		(PVOID)((uintptr_t)target_process + EPROCESS_IMAGE_FILE_NAME_OFFSET),
-		sizeof(target_name)
+		( PVOID )( ( uintptr_t )target_process + EPROCESS_IMAGE_FILE_NAME_OFFSET ),
+		sizeof( target_name )
 	);
 
 	//Make sure we are only focusing on our protected process
-	if (!strcmp(protected_process_name, target_name))
+	if ( !strcmp( protected_process_name, target_name ) )
 	{
 		//todo: downgrade handles from lsass and csrss
 
-		if (!strcmp(process_creator_name, "lsass.exe") || !strcmp(process_creator_name, "csrss.exe"))
+		if ( !strcmp( process_creator_name, "lsass.exe" ) || !strcmp( process_creator_name, "csrss.exe" ) )
 		{
 			//downgrade access
 		}
-		else if (target_process == process_creator)
+		else if ( target_process == process_creator )
 		{
 			//Allow handles created by the protected process 
 
-			DEBUG_LOG("Handles created by the protected process are fine for now: %s", process_creator_name);
+			DEBUG_LOG( "Handles created by the protected process are fine for now: %s", process_creator_name );
 		}
-		else if (process_creator == protected_process_creator)
+		else if ( process_creator == protected_process_creator )
 		{
 			//Allow handles created by the protected process' creator i.e explorer, cmd etc.
 
-			DEBUG_LOG("Process creator: %s handles are fine for now...", process_creator_name);
+			DEBUG_LOG( "Process creator: %s handles are fine for now...", process_creator_name );
 		}
 		else
 		{
 			OperationInformation->Parameters->CreateHandleInformation.DesiredAccess = deny_access;
 			OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess = deny_access;
-			DEBUG_LOG("handle stripped from: %s", process_creator_name);
+			DEBUG_LOG( "handle stripped from: %s", process_creator_name );
 		}
 	}
 
@@ -364,45 +370,45 @@ VOID ProcessCreateNotifyRoutine(
 	PEPROCESS parent_process;
 	PEPROCESS target_process;
 
-	CHAR parent_process_name[15];
-	CHAR target_process_name[15];
+	CHAR parent_process_name[ 15 ];
+	CHAR target_process_name[ 15 ];
 
-	status = PsLookupProcessByProcessId(ParentId, &parent_process);
+	status = PsLookupProcessByProcessId( ParentId, &parent_process );
 
-	if (!NT_SUCCESS(status))
+	if ( !NT_SUCCESS( status ) )
 		return;
 
-	status = PsLookupProcessByProcessId(ProcessId, &target_process);
+	status = PsLookupProcessByProcessId( ProcessId, &target_process );
 
-	if (!NT_SUCCESS(status))
+	if ( !NT_SUCCESS( status ) )
 		return;
 
 	RtlCopyMemory(
 		&parent_process_name,
-		(PVOID)((uintptr_t)parent_process + EPROCESS_IMAGE_FILE_NAME_OFFSET),
-		sizeof(parent_process_name)
+		( PVOID )( ( uintptr_t )parent_process + EPROCESS_IMAGE_FILE_NAME_OFFSET ),
+		sizeof( parent_process_name )
 	);
 
 	RtlCopyMemory(
 		&target_process_name,
-		(PVOID)((uintptr_t)target_process + EPROCESS_IMAGE_FILE_NAME_OFFSET),
-		sizeof(target_process_name)
+		( PVOID )( ( uintptr_t )target_process + EPROCESS_IMAGE_FILE_NAME_OFFSET ),
+		sizeof( target_process_name )
 	);
 
-	if (!strcmp(target_process_name, protected_process_name))
+	if ( !strcmp( target_process_name, protected_process_name ) )
 	{
-		DEBUG_LOG("parent process for notepad is: %s", parent_process_name);
+		DEBUG_LOG( "parent process for notepad is: %s", parent_process_name );
 		protected_process_creator = parent_process;
 
-		KeWaitForSingleObject(&protected_process_mutex, Executive, KernelMode, FALSE, NULL);
+		KeWaitForSingleObject( &protected_process_mutex, Executive, KernelMode, FALSE, NULL );
 		protected_process = target_process;
-		KeReleaseMutex(&protected_process_mutex, 0);
+		KeReleaseMutex( &protected_process_mutex, 0 );
 
-		KeWaitForSingleObject(&process_launch_irp_mutex, Executive, KernelMode, FALSE, NULL);
+		KeWaitForSingleObject( &process_launch_irp_mutex, Executive, KernelMode, FALSE, NULL );
 		process_launch_notify_irp != NULL
-			? CompleteInvertedCallIrp(process_launch_notify_irp)
-			: DEBUG_ERROR("No process launch IRP queued");
-		KeReleaseMutex(&process_launch_irp_mutex, 0);
+			? CompleteInvertedCallIrp( process_launch_notify_irp )
+			: DEBUG_ERROR( "No process launch IRP queued" );
+		KeReleaseMutex( &process_launch_irp_mutex, 0 );
 	}
 }
 
@@ -410,20 +416,20 @@ VOID CheckIfProtectedProcessIsRunningAtDriverEntry(
 	_In_ PEPROCESS Process
 )
 {
-	CHAR process_name[15];
+	CHAR process_name[ 15 ];
 
 	RtlCopyMemory(
 		&process_name,
-		(PVOID)((uintptr_t)Process + EPROCESS_IMAGE_FILE_NAME_OFFSET),
-		sizeof(process_name)
+		( PVOID )( ( uintptr_t )Process + EPROCESS_IMAGE_FILE_NAME_OFFSET ),
+		sizeof( process_name )
 	);
 
-	if (!strcmp(process_name, protected_process_name))
+	if ( !strcmp( process_name, protected_process_name ) )
 	{
-		DEBUG_LOG("Protected process is already running, setting pointer");
-		KeWaitForSingleObject(&protected_process_mutex, Executive, KernelMode, FALSE, NULL);
+		DEBUG_LOG( "Protected process is already running, setting pointer" );
+		KeWaitForSingleObject( &protected_process_mutex, Executive, KernelMode, FALSE, NULL );
 		protected_process = Process;
-		KeReleaseMutex(&protected_process_mutex, 0);
+		KeReleaseMutex( &protected_process_mutex, 0 );
 	}
 }
 
@@ -431,19 +437,19 @@ VOID DriverUnload(
 	_In_ PDRIVER_OBJECT DriverObject
 )
 {
-	DEBUG_LOG("Unloading driver");
+	DEBUG_LOG( "Unloading driver" );
 
-	if (!CheckIfRegistrationHandleIsNull())
-		ObUnRegisterCallbacks(registration_handle);
+	if ( !CheckIfRegistrationHandleIsNull() )
+		ObUnRegisterCallbacks( registration_handle );
 
-	PsSetCreateProcessNotifyRoutine(ProcessCreateNotifyRoutine, TRUE);
-	IoDeleteSymbolicLink(&DEVICE_SYMBOLIC_LINK);
-	IoDeleteDevice(DriverObject->DeviceObject);
+	PsSetCreateProcessNotifyRoutine( ProcessCreateNotifyRoutine, TRUE );
+	IoDeleteSymbolicLink( &DEVICE_SYMBOLIC_LINK );
+	IoDeleteDevice( DriverObject->DeviceObject );
 }
 
 NTSTATUS EnableObRegisterCallbacks()
 {
-	DEBUG_LOG("Enabling ObRegisterCallbacks");
+	DEBUG_LOG( "Enabling ObRegisterCallbacks" );
 
 	NTSTATUS status;
 
@@ -466,9 +472,9 @@ NTSTATUS EnableObRegisterCallbacks()
 		&registration_handle
 	);
 
-	if (!NT_SUCCESS(status))
+	if ( !NT_SUCCESS( status ) )
 	{
-		DEBUG_ERROR("Failed to register our callback: %lx", status);
+		DEBUG_ERROR( "Failed to register our callback: %lx", status );
 		return status;
 	}
 
@@ -479,7 +485,7 @@ NTSTATUS ToggleLoadProcessNotifyRoutine(
 	_In_ BOOLEAN Toggle
 )
 {
-	DEBUG_LOG("Toggling Process load routine. Remove: %d", Toggle);
+	DEBUG_LOG( "Toggling Process load routine. Remove: %d", Toggle );
 
 	NTSTATUS status;
 
@@ -488,9 +494,9 @@ NTSTATUS ToggleLoadProcessNotifyRoutine(
 		Toggle
 	);
 
-	if (!NT_SUCCESS(status))
+	if ( !NT_SUCCESS( status ) )
 	{
-		DEBUG_ERROR("Failed to register or unregister process create notifyu routien");
+		DEBUG_ERROR( "Failed to register or unregister process create notifyu routien" );
 		return status;
 	}
 
@@ -502,16 +508,16 @@ NTSTATUS MajorControl(
 	_In_ PIRP Irp
 )
 {
-	UNREFERENCED_PARAMETER(DriverObject);
+	UNREFERENCED_PARAMETER( DriverObject );
 
 	NTSTATUS status = STATUS_SUCCESS;
-	PIO_STACK_LOCATION stack_location = IoGetCurrentIrpStackLocation(Irp);
+	PIO_STACK_LOCATION stack_location = IoGetCurrentIrpStackLocation( Irp );
 
-	switch (stack_location->Parameters.DeviceIoControl.IoControlCode)
+	switch ( stack_location->Parameters.DeviceIoControl.IoControlCode )
 	{
 	case IOCTL_RUN_HANDLE_STRIPPER:
-		
-		DEBUG_LOG("RunHandleStripper IOCTL Received");
+
+		DEBUG_LOG( "RunHandleStripper IOCTL Received" );
 
 		HANDLE thread_handle;
 
@@ -525,8 +531,8 @@ NTSTATUS MajorControl(
 			&EnumerateProcessHandles
 		);
 
-		if (!NT_SUCCESS(status))
-			DEBUG_ERROR("Failed to start handle enumeration thread");
+		if ( !NT_SUCCESS( status ) )
+			DEBUG_ERROR( "Failed to start handle enumeration thread" );
 
 		break;
 
@@ -534,63 +540,63 @@ NTSTATUS MajorControl(
 
 		status = EnableObRegisterCallbacks();
 
-		if (!NT_SUCCESS(status))
-			DEBUG_ERROR("Failed to register our obregistercallback");
+		if ( !NT_SUCCESS( status ) )
+			DEBUG_ERROR( "Failed to register our obregistercallback" );
 
 		break;
 
 	case IOCTL_DISABLE_OB_HANDLE_CALLBACKS:
 
-		DEBUG_LOG("Disabling ObRegisterCallbacks");
+		DEBUG_LOG( "Disabling ObRegisterCallbacks" );
 
-		if (!CheckIfRegistrationHandleIsNull())
+		if ( !CheckIfRegistrationHandleIsNull() )
 		{
-			ObUnRegisterCallbacks(registration_handle);
-			ModifyRegistrationHandle(NULL);
+			ObUnRegisterCallbacks( registration_handle );
+			ModifyRegistrationHandle( NULL );
 			break;
 		}
 
-		DEBUG_ERROR("registration handle already null");
+		DEBUG_ERROR( "registration handle already null" );
 		break;
 
 	case IOCTL_ENABLE_PROCESS_LOAD_CALLBACKS:
 
-		status = ToggleLoadProcessNotifyRoutine(FALSE);
+		status = ToggleLoadProcessNotifyRoutine( FALSE );
 
-		if (!NT_SUCCESS(status))
-			DEBUG_ERROR("Failed to enable load process notify rioutine");
+		if ( !NT_SUCCESS( status ) )
+			DEBUG_ERROR( "Failed to enable load process notify rioutine" );
 
 		break;
 
 	case IOCTL_DISABLE_PROCCESS_LOAD_CALLBACKS:
 
-		status = ToggleLoadProcessNotifyRoutine(TRUE);
+		status = ToggleLoadProcessNotifyRoutine( TRUE );
 
-		if (!NT_SUCCESS(status))
-			DEBUG_ERROR("Failed to disable our process load notify routine");
+		if ( !NT_SUCCESS( status ) )
+			DEBUG_ERROR( "Failed to disable our process load notify routine" );
 
 		break;
 
 	case IOCTL_INVERTED_PROCESS_START_NOTIFY:
 
-		status = HandleInvertedCall(Irp);
+		status = HandleInvertedCall( Irp );
 
-		if (!NT_SUCCESS(status))
-			DEBUG_ERROR("Failed to process inverted call IRP");
+		if ( !NT_SUCCESS( status ) )
+			DEBUG_ERROR( "Failed to process inverted call IRP" );
 
 		return status;
 
 	default:
 
-		DEBUG_ERROR("Invalid IOCTL code passed");
+		DEBUG_ERROR( "Invalid IOCTL code passed" );
 
 		break;
 	}
 
-end: 
+end:
 
 	Irp->IoStatus.Status = status;
-	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+	IoCompleteRequest( Irp, IO_NO_INCREMENT );
 	return status;
 }
 
@@ -599,7 +605,7 @@ NTSTATUS DriverEntry(
 	_In_ PUNICODE_STRING RegistryPath
 )
 {
-	UNREFERENCED_PARAMETER(RegistryPath);
+	UNREFERENCED_PARAMETER( RegistryPath );
 
 	NTSTATUS status = STATUS_SUCCESS;
 
@@ -613,12 +619,12 @@ NTSTATUS DriverEntry(
 		&DriverObject->DeviceObject
 	);
 
-	if (!NT_SUCCESS(status))
+	if ( !NT_SUCCESS( status ) )
 		return STATUS_FAILED_DRIVER_ENTRY;
 
-	DriverObject->MajorFunction[IRP_MJ_CREATE] = DriverCreate;
-	DriverObject->MajorFunction[IRP_MJ_CLOSE] = DriverClose;
-	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = MajorControl;
+	DriverObject->MajorFunction[ IRP_MJ_CREATE ] = DriverCreate;
+	DriverObject->MajorFunction[ IRP_MJ_CLOSE ] = DriverClose;
+	DriverObject->MajorFunction[ IRP_MJ_DEVICE_CONTROL ] = MajorControl;
 	DriverObject->DriverUnload = DriverUnload;
 
 	status = IoCreateSymbolicLink(
@@ -626,19 +632,19 @@ NTSTATUS DriverEntry(
 		&DEVICE_NAME
 	);
 
-	if (!NT_SUCCESS(status))
+	if ( !NT_SUCCESS( status ) )
 	{
-		IoDeleteDevice(&DriverObject->DeviceObject);
+		IoDeleteDevice( &DriverObject->DeviceObject );
 		return STATUS_FAILED_DRIVER_ENTRY;
 	}
 
-	KeInitializeMutex(&registration_handle_mutex, 0);
-	KeInitializeMutex(&protected_process_mutex, 0);
-	KeInitializeMutex(&process_launch_irp_mutex, 0);
+	KeInitializeMutex( &registration_handle_mutex, 0 );
+	KeInitializeMutex( &protected_process_mutex, 0 );
+	KeInitializeMutex( &process_launch_irp_mutex, 0 );
 
-	EnumerateProcessListWithCallbackFunction(&CheckIfProtectedProcessIsRunningAtDriverEntry);
+	EnumerateProcessListWithCallbackFunction( &CheckIfProtectedProcessIsRunningAtDriverEntry );
 
-	DEBUG_LOG("Driver entry complete");
+	DEBUG_LOG( "Driver entry complete" );
 
 	return status;
 }

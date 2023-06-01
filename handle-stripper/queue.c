@@ -9,9 +9,9 @@ VOID Enqueue(
 	_In_ PIRP Irp
 )
 {
-	PQUEUE new_entry = ExAllocatePool2(NonPagedPool, sizeof(QUEUE), QUEUE_TAG);
+	PQUEUE new_entry = ExAllocatePool2( NonPagedPool, sizeof( QUEUE ), QUEUE_TAG );
 
-	if (!new_entry)
+	if ( !new_entry )
 		return;
 
 	new_entry->Irp = Irp;
@@ -27,21 +27,21 @@ PIRP Dequeue(
 	PQUEUE previous = NULL;
 	PIRP irp = NULL;
 
-	if (!(*Head))
+	if ( !( *Head ) )
 		return;
 
 	current = *Head;
 
-	while (current->next)
+	while ( current->next )
 	{
 		previous = current;
 		current = current->next;
 	}
 
 	irp = current->Irp;
-	ExFreePool2(current, QUEUE_TAG, NULL, NULL);
+	ExFreePool2( current, QUEUE_TAG, NULL, NULL );
 
-	if (previous)
+	if ( previous )
 		previous->next = NULL;
 	else
 		*Head = NULL;
@@ -49,36 +49,36 @@ PIRP Dequeue(
 	return irp;
 }
 
-VOID QueueInsertIrp(_In_ PIO_CSQ Csq, _In_ PIRP Irp)
+VOID QueueInsertIrp( _In_ PIO_CSQ Csq, _In_ PIRP Irp )
 {
-	Enqueue(&list_head, Irp);
+	Enqueue( &list_head, Irp );
 }
 
-VOID QueueRemoveIrp(_In_ PIO_CSQ Csq, _In_ PIRP Irp)
+VOID QueueRemoveIrp( _In_ PIO_CSQ Csq, _In_ PIRP Irp )
 {
-	Dequeue(&list_head);
+	Dequeue( &list_head );
 }
 
-PIRP QueuePeekNextIrp(_In_ PIO_CSQ Csq, _In_ PIRP Irp, _In_ PVOID PeekContext)
+PIRP QueuePeekNextIrp( _In_ PIO_CSQ Csq, _In_ PIRP Irp, _In_ PVOID PeekContext )
 {
 	//not implemented
 }
 
-VOID QueueAcquireLock(_In_ PIO_CSQ Csq, _In_ PKIRQL Irql)
+VOID QueueAcquireLock( _In_ PIO_CSQ Csq, _In_ PKIRQL Irql )
 {
-	KeAcquireSpinLock(&queue_lock, Irql);
+	KeAcquireSpinLock( &queue_lock, Irql );
 }
 
-VOID QueueReleaseLock(_In_ PIO_CSQ Csq, _In_ KIRQL Irql)
+VOID QueueReleaseLock( _In_ PIO_CSQ Csq, _In_ KIRQL Irql )
 {
-	KeReleaseSpinLock(&queue_lock, Irql);
+	KeReleaseSpinLock( &queue_lock, Irql );
 }
 
-VOID QueueCompleteCancelledIrp(_In_ PIO_CSQ Csq, _In_ PIRP Irp)
+VOID QueueCompleteCancelledIrp( _In_ PIO_CSQ Csq, _In_ PIRP Irp )
 {
 	Irp->IoStatus.Status = STATUS_CANCELLED;
 	Irp->IoStatus.Information = 0;
-	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+	IoCompleteRequest( Irp, IO_NO_INCREMENT );
 }
 
 VOID QueueInitialize()
@@ -97,11 +97,11 @@ VOID QueueInitialize()
 		QueueCompleteCancelledIrp
 	);
 
-	if (!NT_SUCCESS(status))
+	if ( !NT_SUCCESS( status ) )
 	{
 		//DEBUG_ERROR("Failed to initialize cancel safe queue");
 		return;
 	}
 
-	KeInitializeSpinLock(queue_lock);
+	KeInitializeSpinLock( queue_lock );
 }

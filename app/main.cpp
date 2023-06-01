@@ -24,13 +24,13 @@ int main()
         return ERROR;
     }
 
-    LOG_INFO("Enabling ObRegisterCallbacks");
+    //LOG_INFO("Enabling ObRegisterCallbacks");
 
-    if (!driver.EnableObRegisterCallbacks())
-    {
-        LOG_ERROR("Failed to enable obregistercallbacks");
-        return ERROR;
-    }
+    //if (!driver.EnableObRegisterCallbacks())
+    //{
+    //    LOG_ERROR("Failed to enable obregistercallbacks");
+    //    return ERROR;
+    //}
 
     LOG_INFO("Waiting for process start event");
 
